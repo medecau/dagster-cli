@@ -243,6 +243,7 @@ def create_mcp_server(client: DagsterClient) -> FastMCP:
 def create_mcp_app(client: DagsterClient):
     """Create FastAPI app with MCP server for HTTP transport."""
     from fastapi import FastAPI
+    import dagster_cli
 
     # Create MCP server
     mcp_server = create_mcp_server(client)
@@ -257,7 +258,7 @@ def create_mcp_app(client: DagsterClient):
     async def root():
         return {
             "name": "Dagster CLI MCP Server",
-            "version": "0.1.0",
+            "version": dagster_cli.__version__,
             "mcp_endpoint": "/mcp",
         }
 

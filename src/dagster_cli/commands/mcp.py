@@ -57,13 +57,18 @@ def start_stdio_server(client: DagsterClient):
 async def run_stdio_server(server):
     """Run the stdio server asynchronously."""
     import mcp.server.stdio
-    from mcp.server.models import InitializationOptions
+    from mcp.server.models import InitializationOptions, ServerCapabilities
+    import dagster_cli
 
     async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
         await server.run(
             read_stream,
             write_stream,
-            InitializationOptions(server_name="dagster-cli", server_version="0.1.0"),
+            InitializationOptions(
+                server_name="dagster-cli",
+                server_version=dagster_cli.__version__,
+                capabilities=ServerCapabilities(),
+            ),
         )
 
 
