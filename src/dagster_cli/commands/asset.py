@@ -142,7 +142,61 @@ def view(
                     dep_key_str = (
                         "/".join(dep_key) if isinstance(dep_key, list) else str(dep_key)
                     )
-                    console.print(f"  - {dep_key_str}")
+                    
+                    # Get status from latest materialization
+                    status = "NEVER"
+                    materializations = dep_asset.get("assetMaterializations", [])
+                    if materializations and len(materializations) > 0:
+                        run_info = materializations[0].get("runOrError", {})
+                        if run_info and run_info.get("__typename") == "Run":
+                            status = run_info.get("status", "UNKNOWN")
+                    
+                    # Format status with color
+                    if status == "SUCCESS":
+                        status_display = f"[green][{status}][/green]"
+                    elif status == "FAILURE":
+                        status_display = f"[red][{status}][/red]"
+                    elif status == "STARTED":
+                        status_display = f"[yellow][{status}][/yellow]"
+                    elif status == "NEVER":
+                        status_display = f"[dim][{status}][/dim]"
+                    else:
+                        status_display = f"[white][{status}][/white]"
+                    
+                    console.print(f"  - {dep_key_str} {status_display}")
+
+            # Dependents (downstream assets)
+            dependents = asset.get("dependedBy", [])
+            if dependents:
+                console.print(f"\n[white]Dependents ({len(dependents)}):[/white]")
+                for dependent in dependents:
+                    dep_asset = dependent.get("asset", {})
+                    dep_key = dep_asset.get("assetKey", {}).get("path", [])
+                    dep_key_str = (
+                        "/".join(dep_key) if isinstance(dep_key, list) else str(dep_key)
+                    )
+                    
+                    # Get status from latest materialization
+                    status = "NEVER"
+                    materializations = dep_asset.get("assetMaterializations", [])
+                    if materializations and len(materializations) > 0:
+                        run_info = materializations[0].get("runOrError", {})
+                        if run_info and run_info.get("__typename") == "Run":
+                            status = run_info.get("status", "UNKNOWN")
+                    
+                    # Format status with color
+                    if status == "SUCCESS":
+                        status_display = f"[green][{status}][/green]"
+                    elif status == "FAILURE":
+                        status_display = f"[red][{status}][/red]"
+                    elif status == "STARTED":
+                        status_display = f"[yellow][{status}][/yellow]"
+                    elif status == "NEVER":
+                        status_display = f"[dim][{status}][/dim]"
+                    else:
+                        status_display = f"[white][{status}][/white]"
+                    
+                    console.print(f"  - {dep_key_str} {status_display}")
 
             # Latest materialization
             materializations = asset.get("assetMaterializations", [])

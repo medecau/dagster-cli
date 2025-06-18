@@ -357,6 +357,29 @@ class DagsterClient:
                                     assetKey {
                                         path
                                     }
+                                    assetMaterializations(limit: 1) {
+                                        runOrError {
+                                            __typename
+                                            ... on Run {
+                                                status
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            dependedBy {
+                                asset {
+                                    assetKey {
+                                        path
+                                    }
+                                    assetMaterializations(limit: 1) {
+                                        runOrError {
+                                            __typename
+                                            ... on Run {
+                                                status
+                                            }
+                                        }
+                                    }
                                 }
                             }
                             assetMaterializations(limit: 1) {

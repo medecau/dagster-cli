@@ -70,6 +70,7 @@ dgc run logs abc123 --stderr    # View stderr logs
 ### Assets
 ```bash
 dgc asset list                  # All assets
+dgc asset view my_asset         # View details with dependencies & dependents
 dgc asset health                # Check health status
 dgc asset materialize my_asset  # Trigger materialization
 ```
