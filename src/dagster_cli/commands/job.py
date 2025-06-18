@@ -50,7 +50,7 @@ def list_jobs(
 
     except Exception as e:
         print_error(f"Failed to list jobs: {str(e)}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
 
 @app.command()
@@ -82,13 +82,13 @@ def run(
                 run_config = json.loads(config)
             except json.JSONDecodeError as e:
                 print_error(f"Invalid JSON in --config: {e}")
-                raise typer.Exit(1)
+                raise typer.Exit(1) from e
         elif config_file:
             try:
                 run_config = json.load(config_file)
             except json.JSONDecodeError as e:
                 print_error(f"Invalid JSON in config file: {e}")
-                raise typer.Exit(1)
+                raise typer.Exit(1) from e
 
         # Show what we're about to do
         print_info(f"Job: {job_name}")
@@ -100,10 +100,9 @@ def run(
             print_info("Run configuration provided")
 
         # Confirmation
-        if not yes:
-            if not typer.confirm("Submit this job?"):
-                print_warning("Cancelled")
-                return
+        if not yes and not typer.confirm("Submit this job?"):
+            print_warning("Cancelled")
+            return
 
         client = DagsterClient(profile)
 
@@ -120,16 +119,14 @@ def run(
         print_success("Job submitted successfully!")
         print_info(f"Run ID: {run_id}")
 
-        # Construct URL if possible
-        url = client.profile.get("url", "")
-        if url:
+        if url := client.profile.get("url", ""):
             if not url.startswith("http"):
                 url = f"https://{url}"
             print_info(f"View at: {url}/runs/{run_id}")
 
     except Exception as e:
         print_error(f"Failed to submit job: {str(e)}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
 
 @app.command()
@@ -148,13 +145,7 @@ def view(
             jobs = client.list_jobs()
             progress.remove_task(task)
 
-        # Find the specific job
-        job = None
-        for j in jobs:
-            if j["name"] == job_name:
-                job = j
-                break
-
+        job = next((j for j in jobs if j["name"] == job_name), None)
         if not job:
             print_error(f"Job '{job_name}' not found")
             raise typer.Exit(1)
@@ -168,4 +159,4 @@ def view(
 
     except Exception as e:
         print_error(f"Failed to view job: {str(e)}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e

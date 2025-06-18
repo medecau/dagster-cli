@@ -39,7 +39,7 @@ def start(
 
     except Exception as e:
         print_error(f"Failed to start MCP server: {str(e)}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
 
 def start_stdio_server(client: DagsterClient):

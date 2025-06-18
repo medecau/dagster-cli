@@ -131,9 +131,7 @@ def print_run_details(run: Dict[str, Any]) -> None:
 [cyan]Started:[/cyan] {DagsterClient.format_timestamp(run.get("startTime"))}
 [cyan]Ended:[/cyan]   {DagsterClient.format_timestamp(run.get("endTime"))}"""
 
-    # Add stats if available
-    stats = run.get("stats", {})
-    if stats:
+    if stats := run.get("stats", {}):
         steps_succeeded = stats.get("stepsSucceeded", 0)
         steps_failed = stats.get("stepsFailed", 0)
         content += (

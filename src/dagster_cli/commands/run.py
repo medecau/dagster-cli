@@ -59,7 +59,7 @@ def list_runs(
 
     except Exception as e:
         print_error(f"Failed to list runs: {str(e)}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
 
 @app.command()
@@ -111,7 +111,7 @@ def view(
 
     except Exception as e:
         print_error(f"Failed to view run: {str(e)}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
 
 @app.command()
@@ -312,15 +312,11 @@ def logs(
                 print_info("\nErrors detected. Fetching stderr logs...")
 
                 log_urls = client.get_compute_log_urls(full_run_id)
-                stderr_url = log_urls.get("stderr_url")
-
-                if stderr_url:
+                if stderr_url := log_urls.get("stderr_url"):
                     try:
                         response = requests.get(stderr_url)
                         response.raise_for_status()
-                        stderr_content = response.text.strip()
-
-                        if stderr_content:
+                        if stderr_content := response.text.strip():
                             console.print("\n")
                             console.print(
                                 Panel(
@@ -339,4 +335,4 @@ def logs(
 
     except Exception as e:
         print_error(f"Failed to view logs: {str(e)}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e

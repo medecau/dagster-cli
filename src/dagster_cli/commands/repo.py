@@ -76,7 +76,7 @@ def list_repos(
 
     except Exception as e:
         print_error(f"Failed to list repositories: {str(e)}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
 
 @app.command()
@@ -90,10 +90,9 @@ def reload(
     """Reload a repository location."""
     try:
         # Confirmation
-        if not yes:
-            if not typer.confirm(f"Reload repository location '{location}'?"):
-                print_warning("Cancelled")
-                return
+        if not yes and not typer.confirm(f"Reload repository location '{location}'?"):
+            print_warning("Cancelled")
+            return
 
         client = DagsterClient(profile)
 
@@ -110,4 +109,4 @@ def reload(
 
     except Exception as e:
         print_error(f"Failed to reload repository: {str(e)}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e

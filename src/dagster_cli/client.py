@@ -38,7 +38,7 @@ class DagsterClient:
                     headers={"Dagster-Cloud-Api-Token": self.profile["token"]},
                 )
             except Exception as e:
-                raise APIError(f"Failed to create Dagster client: {e}")
+                raise APIError(f"Failed to create Dagster client: {e}") from e
         return self._dagster_client
 
     @property
@@ -62,7 +62,7 @@ class DagsterClient:
                     transport=transport, fetch_schema_from_transport=True
                 )
             except Exception as e:
-                raise APIError(f"Failed to create GraphQL client: {e}")
+                raise APIError(f"Failed to create GraphQL client: {e}") from e
         return self._gql_client
 
     def get_deployment_info(self) -> Dict[str, Any]:
@@ -87,10 +87,9 @@ class DagsterClient:
                 }
             """)
 
-            result = self.gql_client.execute(query)
-            return result
+            return self.gql_client.execute(query)
         except Exception as e:
-            raise APIError(f"Failed to get deployment info: {e}")
+            raise APIError(f"Failed to get deployment info: {e}") from e
 
     def list_jobs(
         self, repository_location: Optional[str] = None
@@ -129,20 +128,19 @@ class DagsterClient:
                     if repository_location and location_name != repository_location:
                         continue
 
-                    for pipeline in repo.get("pipelines", []):
-                        if pipeline.get("isJob", True):
-                            jobs.append(
-                                {
-                                    "name": pipeline["name"],
-                                    "description": pipeline.get("description", ""),
-                                    "location": location_name,
-                                    "repository": repo["name"],
-                                }
-                            )
-
+                    jobs.extend(
+                        {
+                            "name": pipeline["name"],
+                            "description": pipeline.get("description", ""),
+                            "location": location_name,
+                            "repository": repo["name"],
+                        }
+                        for pipeline in repo.get("pipelines", [])
+                        if pipeline.get("isJob", True)
+                    )
             return jobs
         except Exception as e:
-            raise APIError(f"Failed to list jobs: {e}")
+            raise APIError(f"Failed to list jobs: {e}") from e
 
     def get_run_status(self, run_id: str) -> Optional[Dict[str, Any]]:
         """Get the status of a specific run."""
@@ -174,11 +172,9 @@ class DagsterClient:
             result = self.gql_client.execute(query, variable_values={"runId": run_id})
             run_data = result.get("pipelineRunOrError", {})
 
-            if "status" in run_data:
-                return run_data
-            return None
+            return run_data if "status" in run_data else None
         except Exception as e:
-            raise APIError(f"Failed to get run status: {e}")
+            raise APIError(f"Failed to get run status: {e}") from e
 
     def submit_job_run(
         self,
@@ -195,15 +191,14 @@ class DagsterClient:
             if not repository_name:
                 repository_name = self.profile.get("repository")
 
-            run_id = self.dagster_client.submit_job_execution(
+            return self.dagster_client.submit_job_execution(
                 job_name,
                 repository_location_name=repository_location_name,
                 repository_name=repository_name,
                 run_config=run_config or {},
             )
-            return run_id
         except DagsterGraphQLClientError as e:
-            raise APIError(f"Failed to submit job: {e}")
+            raise APIError(f"Failed to submit job: {e}") from e
 
     def get_recent_runs(
         self, limit: int = 10, status: Optional[str] = None
@@ -248,7 +243,7 @@ class DagsterClient:
                 return runs
             return []
         except Exception as e:
-            raise APIError(f"Failed to get recent runs: {e}")
+            raise APIError(f"Failed to get recent runs: {e}") from e
 
     def reload_repository_location(self, location_name: str) -> bool:
         """Reload a repository location."""
@@ -256,7 +251,7 @@ class DagsterClient:
             self.dagster_client.reload_repository_location(location_name)
             return True
         except DagsterGraphQLClientError as e:
-            raise APIError(f"Failed to reload repository location: {e}")
+            raise APIError(f"Failed to reload repository location: {e}") from e
 
     def list_assets(
         self,
@@ -332,7 +327,7 @@ class DagsterClient:
 
             return assets
         except Exception as e:
-            raise APIError(f"Failed to list assets: {e}")
+            raise APIError(f"Failed to list assets: {e}") from e
 
     def get_asset_details(self, asset_key: str) -> Optional[Dict[str, Any]]:
         """Get detailed information about a specific asset."""
@@ -406,12 +401,9 @@ class DagsterClient:
             result = self.gql_client.execute(query, variable_values=variables)
             asset_data = result.get("assetNodeOrError", {})
 
-            if asset_data.get("__typename") == "AssetNode":
-                return asset_data
-
-            return None
+            return asset_data if asset_data.get("__typename") == "AssetNode" else None
         except Exception as e:
-            raise APIError(f"Failed to get asset details: {e}")
+            raise APIError(f"Failed to get asset details: {e}") from e
 
     def materialize_asset(
         self, asset_key: str, partition_key: Optional[str] = None
@@ -428,17 +420,14 @@ class DagsterClient:
             if partition_key:
                 run_config["partitionKey"] = partition_key
 
-            # Submit the job
-            run_id = self.dagster_client.submit_job_execution(
+            return self.dagster_client.submit_job_execution(
                 job_name,
                 repository_location_name=self.profile.get("location"),
                 repository_name=self.profile.get("repository"),
                 run_config=run_config,
             )
-
-            return run_id
         except DagsterGraphQLClientError as e:
-            raise APIError(f"Failed to materialize asset: {e}")
+            raise APIError(f"Failed to materialize asset: {e}") from e
 
     def get_asset_health(self, group: Optional[str] = None) -> List[Dict[str, Any]]:
         """Get assets with their latest materialization status for health checks."""
@@ -486,29 +475,25 @@ class DagsterClient:
                 for repo in repositories:
                     location_name = repo.get("location", {}).get("name", "")
 
-                    for asset_node in repo.get("assetNodes", []):
-                        # Filter by group if specified
-                        if group and asset_node.get("groupName") != group:
-                            continue
-
-                        assets.append(
-                            {
-                                "id": asset_node.get("id"),
-                                "key": asset_node.get("assetKey"),
-                                "groupName": asset_node.get("groupName"),
-                                "description": asset_node.get("description"),
-                                "computeKind": asset_node.get("computeKind"),
-                                "location": location_name,
-                                "repository": repo["name"],
-                                "assetMaterializations": asset_node.get(
-                                    "assetMaterializations", []
-                                ),
-                            }
-                        )
-
+                    assets.extend(
+                        {
+                            "id": asset_node.get("id"),
+                            "key": asset_node.get("assetKey"),
+                            "groupName": asset_node.get("groupName"),
+                            "description": asset_node.get("description"),
+                            "computeKind": asset_node.get("computeKind"),
+                            "location": location_name,
+                            "repository": repo["name"],
+                            "assetMaterializations": asset_node.get(
+                                "assetMaterializations", []
+                            ),
+                        }
+                        for asset_node in repo.get("assetNodes", [])
+                        if not group or asset_node.get("groupName") == group
+                    )
             return assets
         except Exception as e:
-            raise APIError(f"Failed to get asset health: {e}")
+            raise APIError(f"Failed to get asset health: {e}") from e
 
     def get_run_logs(
         self, run_id: str, limit: int = 100, cursor: Optional[str] = None
@@ -651,7 +636,7 @@ class DagsterClient:
                 raise APIError(f"Failed to get logs: {logs_data}")
 
         except Exception as e:
-            raise APIError(f"Failed to get run logs: {e}")
+            raise APIError(f"Failed to get run logs: {e}") from e
 
     def get_compute_log_urls(
         self, run_id: str, step_key: Optional[str] = None

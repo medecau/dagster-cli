@@ -71,14 +71,9 @@ def list_assets(
                 location_name = asset.get("location", "—")
                 compute_kind = asset.get("computeKind", "—")
 
-                # Check if materialized
-                latest_run = asset.get("latestMaterializationRun")
-                if latest_run:
+                if latest_run := asset.get("latestMaterializationRun"):
                     status = latest_run.get("status", "")
-                    if status == "SUCCESS":
-                        materialized = "✓"
-                    else:
-                        materialized = "✗"
+                    materialized = "✓" if status == "SUCCESS" else "✗"
                 else:
                     materialized = "—"
 
@@ -91,7 +86,7 @@ def list_assets(
 
     except Exception as e:
         print_error(f"Failed to list assets: {str(e)}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
 
 @app.command()
@@ -132,9 +127,7 @@ def view(
             if asset.get("computeKind"):
                 console.print(f"[white]Compute Kind:[/white] {asset['computeKind']}")
 
-            # Dependencies
-            deps = asset.get("dependencies", [])
-            if deps:
+            if deps := asset.get("dependencies", []):
                 console.print(f"\n[white]Dependencies ({len(deps)}):[/white]")
                 for dep in deps:
                     dep_asset = dep.get("asset", {})
@@ -142,7 +135,7 @@ def view(
                     dep_key_str = (
                         "/".join(dep_key) if isinstance(dep_key, list) else str(dep_key)
                     )
-                    
+
                     # Get status from latest materialization
                     status = "NEVER"
                     materializations = dep_asset.get("assetMaterializations", [])
@@ -150,7 +143,7 @@ def view(
                         run_info = materializations[0].get("runOrError", {})
                         if run_info and run_info.get("__typename") == "Run":
                             status = run_info.get("status", "UNKNOWN")
-                    
+
                     # Format status with color
                     if status == "SUCCESS":
                         status_display = f"[green][{status}][/green]"
@@ -162,12 +155,10 @@ def view(
                         status_display = f"[dim][{status}][/dim]"
                     else:
                         status_display = f"[white][{status}][/white]"
-                    
+
                     console.print(f"  - {dep_key_str} {status_display}")
 
-            # Dependents (downstream assets)
-            dependents = asset.get("dependedBy", [])
-            if dependents:
+            if dependents := asset.get("dependedBy", []):
                 console.print(f"\n[white]Dependents ({len(dependents)}):[/white]")
                 for dependent in dependents:
                     dep_asset = dependent.get("asset", {})
@@ -175,7 +166,7 @@ def view(
                     dep_key_str = (
                         "/".join(dep_key) if isinstance(dep_key, list) else str(dep_key)
                     )
-                    
+
                     # Get status from latest materialization
                     status = "NEVER"
                     materializations = dep_asset.get("assetMaterializations", [])
@@ -183,7 +174,7 @@ def view(
                         run_info = materializations[0].get("runOrError", {})
                         if run_info and run_info.get("__typename") == "Run":
                             status = run_info.get("status", "UNKNOWN")
-                    
+
                     # Format status with color
                     if status == "SUCCESS":
                         status_display = f"[green][{status}][/green]"
@@ -195,7 +186,7 @@ def view(
                         status_display = f"[dim][{status}][/dim]"
                     else:
                         status_display = f"[white][{status}][/white]"
-                    
+
                     console.print(f"  - {dep_key_str} {status_display}")
 
             # Latest materialization
@@ -217,8 +208,7 @@ def view(
                         status_display = f"[yellow]{status}[/yellow]"
                     console.print(f"  Status: {status_display}")
 
-                timestamp = latest.get("timestamp")
-                if timestamp:
+                if timestamp := latest.get("timestamp"):
                     # Convert timestamp string to datetime
                     time_str = client.format_timestamp(float(timestamp))
                     console.print(f"  Time: {time_str}")
@@ -227,7 +217,7 @@ def view(
 
     except Exception as e:
         print_error(f"Failed to view asset: {str(e)}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
 
 @app.command()
@@ -249,10 +239,9 @@ def materialize(
             print_info(f"Partition: {partition}")
 
         # Confirmation
-        if not yes:
-            if not typer.confirm("Materialize this asset?"):
-                print_warning("Cancelled")
-                return
+        if not yes and not typer.confirm("Materialize this asset?"):
+            print_warning("Cancelled")
+            return
 
         client = DagsterClient(profile)
 
@@ -266,16 +255,14 @@ def materialize(
         print_success("Materialization submitted successfully!")
         print_info(f"Run ID: {run_id}")
 
-        # Construct URL if possible
-        url = client.profile.get("url", "")
-        if url:
+        if url := client.profile.get("url", ""):
             if not url.startswith("http"):
                 url = f"https://{url}"
             print_info(f"View at: {url}/runs/{run_id}")
 
     except Exception as e:
         print_error(f"Failed to materialize asset: {str(e)}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
 
 @app.command()
@@ -322,24 +309,11 @@ def health(
                 "/".join(asset_key) if isinstance(asset_key, list) else str(asset_key)
             )
 
-            materializations = asset.get("assetMaterializations", [])
-
-            if not materializations:
-                never_materialized.append(
-                    {
-                        "key": asset_key_str,
-                        "group": asset.get("groupName", "—"),
-                        "status": "Never Materialized",
-                        "last_update": "—",
-                    }
-                )
-            else:
+            if materializations := asset.get("assetMaterializations", []):
                 latest = materializations[0]
                 run_info = latest.get("runOrError", {})
                 status = run_info.get("status", "UNKNOWN")
-                timestamp = latest.get("timestamp")
-
-                if timestamp:
+                if timestamp := latest.get("timestamp"):
                     last_update = datetime.fromtimestamp(float(timestamp) / 1000)
                     last_update_str = last_update.strftime("%Y-%m-%d %H:%M:%S")
                 else:
@@ -363,6 +337,15 @@ def health(
                     asset_info["status"] = "Healthy"
                     healthy_assets.append(asset_info)
 
+            else:
+                never_materialized.append(
+                    {
+                        "key": asset_key_str,
+                        "group": asset.get("groupName", "—"),
+                        "status": "Never Materialized",
+                        "last_update": "—",
+                    }
+                )
         # Prepare output
         all_assets_list = (
             failed_assets + never_materialized + stale_assets + healthy_assets
@@ -444,4 +427,4 @@ def health(
 
     except Exception as e:
         print_error(f"Failed to check asset health: {str(e)}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e

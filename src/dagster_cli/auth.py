@@ -57,8 +57,7 @@ def login(
 
             # If we didn't get location/repository, try to detect them
             if not location or not repository:
-                repos = info.get("repositoriesOrError", {}).get("nodes", [])
-                if repos:
+                if repos := info.get("repositoriesOrError", {}).get("nodes", []):
                     first_repo = repos[0]
                     if not location:
                         location = first_repo.get("location", {}).get("name")
@@ -87,7 +86,7 @@ def login(
             except ConfigError:
                 pass
             print_error(f"Authentication failed: {str(e)}")
-            raise typer.Exit(1)
+            raise typer.Exit(1) from e
 
 
 @app.command()

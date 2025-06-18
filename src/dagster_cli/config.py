@@ -44,9 +44,9 @@ class Config:
             with open(CONFIG_FILE, "r") as f:
                 return json.load(f)
         except json.JSONDecodeError as e:
-            raise ConfigError(f"Invalid configuration file: {e}")
+            raise ConfigError(f"Invalid configuration file: {e}") from e
         except Exception as e:
-            raise ConfigError(f"Error reading configuration: {e}")
+            raise ConfigError(f"Error reading configuration: {e}") from e
 
     def _save_config(self) -> None:
         """Save configuration to file."""
@@ -58,7 +58,7 @@ class Config:
             if os.name != "nt":  # Unix-like systems
                 os.chmod(CONFIG_FILE, 0o600)
         except Exception as e:
-            raise ConfigError(f"Error saving configuration: {e}")
+            raise ConfigError(f"Error saving configuration: {e}") from e
 
     def get_profile(self, profile_name: Optional[str] = None) -> Dict[str, str]:
         """Get profile configuration, with environment variable fallback."""

@@ -1,6 +1,6 @@
 [project]
 name = "dagster-cli"
-version = "0.2.2"
+version = "0.3.0"
 description = "A command-line interface for Dagster+"
 readme = "README.md"
 requires-python = ">=3.10"
