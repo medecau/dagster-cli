@@ -62,6 +62,9 @@ dgc job run my_job --config '{...}'  # Run with config
 dgc run list                    # Recent runs
 dgc run list --status FAILURE   # Failed runs only
 dgc run view abc123             # Run details
+dgc run logs abc123             # View run logs (events + auto stderr on errors)
+dgc run logs abc123 --stdout    # View stdout logs
+dgc run logs abc123 --stderr    # View stderr logs
 ```
 
 ### Assets

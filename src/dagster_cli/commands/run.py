@@ -14,7 +14,6 @@ from dagster_cli.utils.output import (
     print_run_details,
     create_spinner,
 )
-from dagster_cli.utils.errors import AuthenticationError, ConfigError
 
 
 app = typer.Typer(help="Run management", no_args_is_help=True)
@@ -135,24 +134,205 @@ def logs(
     profile: Optional[str] = typer.Option(
         None, "--profile", "-p", help="Use specific profile"
     ),
-    follow: bool = typer.Option(
-        False, "--follow", "-f", help="Follow log output (not yet implemented)"
+    stdout: bool = typer.Option(
+        False, "--stdout", help="Show stdout instead of events"
     ),
+    stderr: bool = typer.Option(
+        False, "--stderr", help="Show stderr instead of events"
+    ),
+    events_only: bool = typer.Option(
+        False,
+        "--events-only",
+        help="Only show events, don't auto-fetch stderr on errors",
+    ),
+    output: Optional[str] = typer.Option(
+        None, "--output", "-o", help="Save logs to file instead of displaying"
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
 ):
     """View run logs."""
-    print_warning("Run logs viewing is not yet implemented")
-    print_info("This feature will be added in a future version")
-    print_info("For now, view logs in the Dagster+ UI")
+    import requests
+    from rich.panel import Panel
+    from rich.table import Table
 
-    # Try to construct URL
     try:
         client = DagsterClient(profile)
-        url = client.profile.get("url", "")
-        if url:
-            if not url.startswith("http"):
-                url = f"https://{url}"
-            print_info(f"View at: {url}/runs/{run_id}")
-    except (AuthenticationError, ConfigError):
-        pass
 
-    raise typer.Exit(1)
+        # If partial ID provided, try to find full ID
+        full_run_id = run_id
+        if len(run_id) < 20:  # Likely a partial ID
+            with create_spinner("Finding run...") as progress:
+                task = progress.add_task("Finding run...", total=None)
+                recent_runs = client.get_recent_runs(limit=50)
+                progress.remove_task(task)
+
+            matching_runs = [r for r in recent_runs if r["id"].startswith(run_id)]
+
+            if not matching_runs:
+                print_error(f"No runs found matching '{run_id}'")
+                raise typer.Exit(1)
+            elif len(matching_runs) > 1:
+                print_error(f"Multiple runs found matching '{run_id}':")
+                for r in matching_runs[:5]:
+                    print_info(f"  - {r['id'][:16]}... ({r['pipeline']['name']})")
+                raise typer.Exit(1)
+            else:
+                full_run_id = matching_runs[0]["id"]
+
+        # Handle mutually exclusive options
+        if stdout and stderr:
+            print_error("Cannot specify both --stdout and --stderr")
+            raise typer.Exit(1)
+
+        # Get compute logs if requested
+        if stdout or stderr:
+            with create_spinner("Fetching compute log URLs...") as progress:
+                task = progress.add_task("Fetching compute log URLs...", total=None)
+                log_urls = client.get_compute_log_urls(full_run_id)
+                progress.remove_task(task)
+
+            url = log_urls.get("stdout_url" if stdout else "stderr_url")
+            if not url:
+                print_warning(
+                    f"No {'stdout' if stdout else 'stderr'} logs available for this run"
+                )
+                print_info(
+                    "Compute logs may only be available for Dagster+ deployments"
+                )
+                raise typer.Exit(1)
+
+            # Download log content
+            with create_spinner(
+                f"Downloading {'stdout' if stdout else 'stderr'}..."
+            ) as progress:
+                task = progress.add_task(
+                    f"Downloading {'stdout' if stdout else 'stderr'}...", total=None
+                )
+                response = requests.get(url)
+                response.raise_for_status()
+                log_content = response.text
+                progress.remove_task(task)
+
+            if output:
+                with open(output, "w") as f:
+                    f.write(log_content)
+                print_info(f"Logs saved to {output}")
+            elif json_output:
+                console.print_json(
+                    data={
+                        "type": "stdout" if stdout else "stderr",
+                        "content": log_content,
+                    }
+                )
+            else:
+                console.print(
+                    Panel(
+                        log_content,
+                        title=f"{'stdout' if stdout else 'stderr'} logs",
+                        expand=False,
+                    )
+                )
+
+        else:
+            # Default: show event logs
+            with create_spinner("Fetching event logs...") as progress:
+                task = progress.add_task("Fetching event logs...", total=None)
+                logs_data = client.get_run_logs(full_run_id, limit=100)
+                progress.remove_task(task)
+
+            events = logs_data.get("events", [])
+            if not events:
+                print_warning("No log events found for this run")
+                raise typer.Exit(1)
+
+            # Check for errors
+            has_errors = any(
+                event.get("level") in ["ERROR", "CRITICAL"]
+                or event.get("__typename") in ["StepFailureEvent", "RunFailureEvent"]
+                for event in events
+            )
+
+            if json_output:
+                console.print_json(data=events)
+            else:
+                # Display events in a table
+                table = Table(title=f"Event Logs for Run {full_run_id[:8]}...")
+                table.add_column("Time", style="cyan", no_wrap=True)
+                table.add_column("Level", style="yellow")
+                table.add_column("Type", style="blue")
+                table.add_column("Message", style="white")
+
+                for event in events:
+                    timestamp = client.format_timestamp(event.get("timestamp"))
+                    level = event.get("level", "")
+                    event_type = event.get("__typename", "").replace("Event", "")
+                    message = event.get("message", "")
+
+                    # Add additional context for specific event types
+                    if event.get("__typename") == "StepFailureEvent":
+                        error = event.get("error", {})
+                        if error.get("message"):
+                            message = f"{message}\nError: {error['message']}"
+                    elif event.get("__typename") == "RunFailureEvent":
+                        error = event.get("error", {})
+                        if error.get("message"):
+                            message = f"{message}\nError: {error['message']}"
+
+                    # Color code based on level
+                    if level == "ERROR" or event_type in ["StepFailure", "RunFailure"]:
+                        level_style = "red bold"
+                    elif level == "WARNING":
+                        level_style = "yellow"
+                    elif level == "INFO":
+                        level_style = "green"
+                    else:
+                        level_style = "white"
+
+                    table.add_row(
+                        timestamp,
+                        f"[{level_style}]{level}[/{level_style}]" if level else "",
+                        event_type,
+                        message,
+                    )
+
+                console.print(table)
+
+                # If there are more events, indicate it
+                if logs_data.get("hasMore"):
+                    print_info(
+                        f"\nShowing first {len(events)} events. More events available."
+                    )
+
+            # Auto-fetch stderr if there are errors (unless --events-only)
+            if has_errors and not events_only and not json_output:
+                print_info("\nErrors detected. Fetching stderr logs...")
+
+                log_urls = client.get_compute_log_urls(full_run_id)
+                stderr_url = log_urls.get("stderr_url")
+
+                if stderr_url:
+                    try:
+                        response = requests.get(stderr_url)
+                        response.raise_for_status()
+                        stderr_content = response.text.strip()
+
+                        if stderr_content:
+                            console.print("\n")
+                            console.print(
+                                Panel(
+                                    stderr_content,
+                                    title="stderr output",
+                                    expand=False,
+                                    border_style="red",
+                                )
+                            )
+                        else:
+                            print_info("stderr is empty")
+                    except Exception as e:
+                        print_warning(f"Failed to fetch stderr: {e}")
+                else:
+                    print_info("stderr logs not available (may require Dagster+)")
+
+    except Exception as e:
+        print_error(f"Failed to view logs: {str(e)}")
+        raise typer.Exit(1)

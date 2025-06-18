@@ -487,6 +487,120 @@ class DagsterClient:
         except Exception as e:
             raise APIError(f"Failed to get asset health: {e}")
 
+    def get_run_logs(
+        self, run_id: str, limit: int = 100, cursor: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Get event logs for a run."""
+        try:
+            query = gql("""
+                query GetLogsForRun($runId: ID!, $afterCursor: String, $limit: Int) {
+                    logsForRun(runId: $runId, afterCursor: $afterCursor, limit: $limit) {
+                        ... on EventConnection {
+                            events {
+                                __typename
+                                timestamp
+                                message
+                                level
+                                stepKey
+                                ... on LogMessageEvent {
+                                    userMessage
+                                    pid
+                                }
+                                ... on StepMaterializationEvent {
+                                    materialization {
+                                        label
+                                        description
+                                    }
+                                }
+                                ... on AssetMaterializationPlannedEvent {
+                                    assetKey {
+                                        path
+                                    }
+                                }
+                                ... on HandledOutputEvent {
+                                    outputName
+                                }
+                                ... on StepFailureEvent {
+                                    error {
+                                        message
+                                        stack
+                                    }
+                                }
+                                ... on RunFailureEvent {
+                                    error {
+                                        message
+                                        stack
+                                    }
+                                }
+                            }
+                            cursor
+                            hasMore
+                        }
+                        ... on RunNotFoundError {
+                            message
+                        }
+                        ... on PythonError {
+                            message
+                            stack
+                        }
+                    }
+                }
+            """)
+
+            variables = {
+                "runId": run_id,
+                "limit": limit,
+            }
+            if cursor:
+                variables["afterCursor"] = cursor
+
+            result = self.gql_client.execute(query, variable_values=variables)
+            logs_data = result.get("logsForRun", {})
+
+            if "events" in logs_data:
+                return {
+                    "events": logs_data["events"],
+                    "cursor": logs_data.get("cursor"),
+                    "hasMore": logs_data.get("hasMore", False),
+                }
+            elif logs_data.get("__typename") == "RunNotFoundError":
+                raise APIError(f"Run not found: {logs_data.get('message', run_id)}")
+            else:
+                raise APIError(f"Failed to get logs: {logs_data}")
+
+        except Exception as e:
+            raise APIError(f"Failed to get run logs: {e}")
+
+    def get_compute_log_urls(
+        self, run_id: str, step_key: Optional[str] = None
+    ) -> Dict[str, Optional[str]]:
+        """Get S3 URLs for stdout/stderr logs."""
+        try:
+            # Query for compute log metadata
+            query = gql("""
+                query CapturedLogsMetadata($runId: ID!, $stepKey: String) {
+                    capturedLogsMetadata(runId: $runId, stepKey: $stepKey) {
+                        stdoutDownloadUrl
+                        stderrDownloadUrl
+                    }
+                }
+            """)
+
+            variables = {"runId": run_id}
+            if step_key:
+                variables["stepKey"] = step_key
+
+            result = self.gql_client.execute(query, variable_values=variables)
+            metadata = result.get("capturedLogsMetadata", {})
+
+            return {
+                "stdout_url": metadata.get("stdoutDownloadUrl"),
+                "stderr_url": metadata.get("stderrDownloadUrl"),
+            }
+        except Exception:
+            # If the query is not available (e.g., not on Dagster+), return empty URLs
+            return {"stdout_url": None, "stderr_url": None}
+
     @staticmethod
     def format_timestamp(timestamp: Optional[float]) -> str:
         """Format Unix timestamp to readable datetime."""
