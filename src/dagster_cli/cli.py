@@ -9,6 +9,7 @@ from dagster_cli.commands.job import app as job_app
 from dagster_cli.commands.run import app as run_app
 from dagster_cli.commands.repo import app as repo_app
 from dagster_cli.commands.asset import app as asset_app
+from dagster_cli.commands.mcp import app as mcp_app
 from dagster_cli.config import Config
 from dagster_cli.utils.output import console, print_info
 
@@ -28,6 +29,7 @@ app.add_typer(job_app, name="job")
 app.add_typer(run_app, name="run")
 app.add_typer(repo_app, name="repo")
 app.add_typer(asset_app, name="asset")
+app.add_typer(mcp_app, name="mcp")
 
 
 def version_callback(show: bool):

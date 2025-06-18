@@ -11,6 +11,7 @@ A command-line interface for Dagster+, inspired by GitHub's `gh` CLI.
 - 🏗️ **Repository Operations** - List and reload code locations
 - 🎨 **Rich Terminal UI** - Beautiful tables and formatted output
 - 🔧 **Profile Support** - Manage multiple Dagster+ deployments
+- 🤖 **MCP Integration** - Expose Dagster+ functionality to AI assistants via Model Context Protocol
 
 ## Installation
 
@@ -237,6 +238,72 @@ dgc run list --status FAILURE --limit 50 | grep "$(date +%Y-%m-%d)"
 ### Reload all repository locations
 ```bash
 dgc repo list --json | jq -r '.[].location' | xargs -I {} dgc repo reload {}
+```
+
+## MCP (Model Context Protocol) Integration
+
+The Dagster CLI includes an MCP server that exposes Dagster+ functionality to AI assistants like Claude, Cursor, and other MCP-compatible tools. This is particularly useful for monitoring asset health and debugging failed runs.
+
+### Starting the MCP Server
+
+```bash
+# Start in stdio mode (default - for local AI assistants)
+dgc mcp start
+
+# Start in HTTP mode (for remote access)
+dgc mcp start --http
+```
+
+### Available MCP Tools
+
+The MCP server exposes the following tools:
+
+- **list_jobs** - List available Dagster jobs
+- **run_job** - Submit a job for execution
+- **get_run_status** - Get status and details of a specific run
+- **list_runs** - Get recent run history with filtering
+- **list_assets** - List all assets with optional filtering
+- **materialize_asset** - Trigger asset materialization
+- **reload_repository** - Reload a repository location
+
+### Common Use Cases
+
+#### Asset Health Monitoring
+AI assistants can check asset health and identify stale or failed assets:
+```
+"Check the health of all analytics assets and tell me which ones need attention"
+```
+
+#### Debugging Failed Assets
+When assets fail, AI assistants can investigate by:
+1. Checking asset status and last materialization time
+2. Finding the failed run ID
+3. Getting run details to understand the failure
+```
+"The daily_revenue asset is failing. Can you check what's wrong?"
+```
+
+### Integration with AI Tools
+
+#### Claude Desktop
+Add to your Claude Desktop configuration:
+```json
+{
+  "servers": {
+    "dagster-cli": {
+      "command": "dgc",
+      "args": ["mcp", "start"]
+    }
+  }
+}
+```
+
+#### Other MCP Clients
+The HTTP mode allows integration with any MCP-compatible client:
+```bash
+dgc mcp start --http
+# Server runs on http://localhost:8000
+# MCP endpoint: http://localhost:8000/mcp
 ```
 
 ## Security

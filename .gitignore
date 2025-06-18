@@ -44,3 +44,6 @@ site/
 # Jupyter
 .ipynb_checkpoints/
 *.ipynb
+
+# Manual test scripts
+test_mcp_manual.py
