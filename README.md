@@ -5,8 +5,11 @@ A command-line interface for Dagster+, inspired by GitHub's `gh` CLI.
 ## Installation
 
 ```bash
-# Install with uvx (recommended)
-uvx install dagster-cli
+# Install with uv (recommended - adds 'dgc' to PATH)
+uv tool install dagster-cli
+
+# Or run without installation (temporary use)
+uvx --from dagster-cli dgc auth login
 
 # Or install with pip
 pip install dagster-cli
