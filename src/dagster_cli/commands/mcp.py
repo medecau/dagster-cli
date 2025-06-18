@@ -1,6 +1,5 @@
 """MCP (Model Context Protocol) command for exposing Dagster+ functionality."""
 
-import asyncio
 import typer
 from typing import Optional
 
@@ -50,26 +49,8 @@ def start_stdio_server(client: DagsterClient):
     # Create the MCP server with all tools/resources
     server = create_mcp_server(client)
 
-    # Run the stdio server
-    asyncio.run(run_stdio_server(server._mcp_server))
-
-
-async def run_stdio_server(server):
-    """Run the stdio server asynchronously."""
-    import mcp.server.stdio
-    from mcp.server.models import InitializationOptions, ServerCapabilities
-    import dagster_cli
-
-    async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
-        await server.run(
-            read_stream,
-            write_stream,
-            InitializationOptions(
-                server_name="dagster-cli",
-                server_version=dagster_cli.__version__,
-                capabilities=ServerCapabilities(),
-            ),
-        )
+    # Run the FastMCP server using its built-in stdio transport
+    server.run("stdio")
 
 
 def start_http_server(client: DagsterClient):
