@@ -19,7 +19,7 @@ app = typer.Typer(
     no_args_is_help=True,
     rich_markup_mode="rich",
     context_settings={"help_option_names": ["-h", "--help"]},
-    pretty_exceptions_enable=False
+    pretty_exceptions_enable=False,
 )
 
 # Add subcommands
@@ -41,35 +41,33 @@ def version_callback(show: bool):
 def main(
     version: bool = typer.Option(
         False,
-        "--version", "-v",
+        "--version",
+        "-v",
         help="Show version and exit",
         callback=version_callback,
-        is_eager=True
+        is_eager=True,
     ),
     profile: Optional[str] = typer.Option(
-        None,
-        "--profile", "-p",
-        help="Use specific profile",
-        envvar="DGC_PROFILE"
-    )
+        None, "--profile", "-p", help="Use specific profile", envvar="DGC_PROFILE"
+    ),
 ):
     """
     Dagster CLI - A command-line interface for Dagster+
-    
+
     Similar to GitHub's 'gh' CLI, but for Dagster+ operations.
-    
+
     Get started with:
-    
+
         dgc auth login
-    
+
     Then explore available commands:
-    
+
         dgc job list
         dgc run list
         dgc repo list
-    
+
     For help on any command, use:
-    
+
         dgc [command] --help
     """
     # Profile handling is done per-command, this is just for the callback
@@ -80,22 +78,22 @@ def main(
 def status():
     """Show current status and configuration."""
     config = Config()
-    
+
     # Show version
     console.print(f"[bold]Dagster CLI[/bold] version {__version__}")
     console.print()
-    
+
     # Check authentication
     if config.has_auth():
         profile_name = config.get_current_profile_name()
         profile = config.get_profile()
-        
+
         print_info(f"Authenticated as profile '{profile_name}'")
         print_info(f"Connected to: {profile.get('url', 'Unknown')}")
-        
-        if profile.get('location'):
+
+        if profile.get("location"):
             print_info(f"Default location: {profile['location']}")
-        if profile.get('repository'):
+        if profile.get("repository"):
             print_info(f"Default repository: {profile['repository']}")
     else:
         console.print("[yellow]Not authenticated[/yellow]")
@@ -107,14 +105,12 @@ def config(
     key: Optional[str] = typer.Argument(None, help="Configuration key to get/set"),
     value: Optional[str] = typer.Argument(None, help="Value to set"),
     list_all: bool = typer.Option(
-        False,
-        "--list", "-l",
-        help="List all configuration values"
-    )
+        False, "--list", "-l", help="List all configuration values"
+    ),
 ):
     """Get or set configuration values."""
     config_obj = Config()
-    
+
     if list_all:
         profile = config_obj.get_profile()
         console.print("[bold]Current configuration:[/bold]")

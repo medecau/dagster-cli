@@ -1,6 +1,5 @@
 """Constants used throughout the Dagster CLI application."""
 
-import os
 from pathlib import Path
 
 APP_NAME = "dagster-cli"
