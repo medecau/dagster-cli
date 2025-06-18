@@ -1,0 +1,194 @@
+"""Job-related commands for Dagster CLI."""
+
+import json
+import typer
+from typing import Optional
+
+from dagster_cli.client import DagsterClient
+from dagster_cli.utils.output import (
+    console, print_success, print_error, print_warning,
+    print_info, print_jobs_table, create_spinner
+)
+from dagster_cli.utils.errors import APIError
+
+
+app = typer.Typer(
+    help="Job operations",
+    no_args_is_help=True
+)
+
+
+@app.command("list")
+def list_jobs(
+    location: Optional[str] = typer.Option(
+        None,
+        "--location", "-l",
+        help="Filter by repository location"
+    ),
+    profile: Optional[str] = typer.Option(
+        None,
+        "--profile", "-p",
+        help="Use specific profile"
+    ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        help="Output as JSON"
+    )
+):
+    """List all available jobs."""
+    try:
+        client = DagsterClient(profile)
+        
+        with create_spinner("Fetching jobs...") as progress:
+            task = progress.add_task("Fetching jobs...", total=None)
+            jobs = client.list_jobs(location)
+            progress.remove_task(task)
+        
+        if not jobs:
+            print_warning("No jobs found")
+            return
+        
+        if json_output:
+            console.print_json(data=jobs)
+        else:
+            print_info(f"Found {len(jobs)} jobs")
+            print_jobs_table(jobs, show_location=(location is None))
+            
+    except Exception as e:
+        print_error(f"Failed to list jobs: {str(e)}")
+        raise typer.Exit(1)
+
+
+@app.command()
+def run(
+    job_name: str = typer.Argument(..., help="Name of the job to run"),
+    config: Optional[str] = typer.Option(
+        None,
+        "--config", "-c",
+        help="Run configuration as JSON string"
+    ),
+    config_file: Optional[typer.FileText] = typer.Option(
+        None,
+        "--config-file", "-f",
+        help="Run configuration from file"
+    ),
+    location: Optional[str] = typer.Option(
+        None,
+        "--location", "-l",
+        help="Repository location (overrides profile default)"
+    ),
+    repository: Optional[str] = typer.Option(
+        None,
+        "--repository", "-r",
+        help="Repository name (overrides profile default)"
+    ),
+    profile: Optional[str] = typer.Option(
+        None,
+        "--profile", "-p",
+        help="Use specific profile"
+    ),
+    yes: bool = typer.Option(
+        False,
+        "--yes", "-y",
+        help="Skip confirmation prompt"
+    )
+):
+    """Submit a job for execution."""
+    try:
+        # Parse run configuration
+        run_config = {}
+        if config:
+            try:
+                run_config = json.loads(config)
+            except json.JSONDecodeError as e:
+                print_error(f"Invalid JSON in --config: {e}")
+                raise typer.Exit(1)
+        elif config_file:
+            try:
+                run_config = json.load(config_file)
+            except json.JSONDecodeError as e:
+                print_error(f"Invalid JSON in config file: {e}")
+                raise typer.Exit(1)
+        
+        # Show what we're about to do
+        print_info(f"Job: {job_name}")
+        if location:
+            print_info(f"Location: {location}")
+        if repository:
+            print_info(f"Repository: {repository}")
+        if run_config:
+            print_info("Run configuration provided")
+        
+        # Confirmation
+        if not yes:
+            if not typer.confirm("Submit this job?"):
+                print_warning("Cancelled")
+                return
+        
+        client = DagsterClient(profile)
+        
+        with create_spinner("Submitting job...") as progress:
+            task = progress.add_task("Submitting job...", total=None)
+            run_id = client.submit_job_run(
+                job_name=job_name,
+                run_config=run_config,
+                repository_location_name=location,
+                repository_name=repository
+            )
+            progress.remove_task(task)
+        
+        print_success(f"Job submitted successfully!")
+        print_info(f"Run ID: {run_id}")
+        
+        # Construct URL if possible
+        url = client.profile.get("url", "")
+        if url:
+            if not url.startswith("http"):
+                url = f"https://{url}"
+            print_info(f"View at: {url}/runs/{run_id}")
+            
+    except Exception as e:
+        print_error(f"Failed to submit job: {str(e)}")
+        raise typer.Exit(1)
+
+
+@app.command()
+def view(
+    job_name: str = typer.Argument(..., help="Name of the job to view"),
+    profile: Optional[str] = typer.Option(
+        None,
+        "--profile", "-p",
+        help="Use specific profile"
+    )
+):
+    """View job details."""
+    try:
+        client = DagsterClient(profile)
+        
+        with create_spinner("Fetching job details...") as progress:
+            task = progress.add_task("Fetching job details...", total=None)
+            jobs = client.list_jobs()
+            progress.remove_task(task)
+        
+        # Find the specific job
+        job = None
+        for j in jobs:
+            if j["name"] == job_name:
+                job = j
+                break
+        
+        if not job:
+            print_error(f"Job '{job_name}' not found")
+            raise typer.Exit(1)
+        
+        # Display job information
+        console.print(f"\n[bold cyan]Job: {job['name']}[/bold cyan]")
+        if job.get("description"):
+            console.print(f"[white]Description:[/white] {job['description']}")
+        console.print(f"[white]Location:[/white] {job.get('location', 'Unknown')}")
+        console.print(f"[white]Repository:[/white] {job.get('repository', 'Unknown')}")
+        
+    except Exception as e:
+        print_error(f"Failed to view job: {str(e)}")
+        raise typer.Exit(1)
