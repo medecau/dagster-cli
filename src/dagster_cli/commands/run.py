@@ -248,7 +248,8 @@ def logs(
             # Check for errors
             has_errors = any(
                 event.get("level") in ["ERROR", "CRITICAL"]
-                or event.get("__typename") in ["StepFailureEvent", "RunFailureEvent"]
+                or event.get("__typename")
+                in ["ExecutionStepFailureEvent", "RunFailureEvent"]
                 for event in events
             )
 
@@ -269,17 +270,20 @@ def logs(
                     message = event.get("message", "")
 
                     # Add additional context for specific event types
-                    if event.get("__typename") == "StepFailureEvent":
-                        error = event.get("error", {})
+                    if event.get("__typename") == "ExecutionStepFailureEvent":
+                        error = event.get("error") or {}
                         if error.get("message"):
                             message = f"{message}\nError: {error['message']}"
                     elif event.get("__typename") == "RunFailureEvent":
-                        error = event.get("error", {})
+                        error = event.get("error") or {}
                         if error.get("message"):
                             message = f"{message}\nError: {error['message']}"
 
                     # Color code based on level
-                    if level == "ERROR" or event_type in ["StepFailure", "RunFailure"]:
+                    if level == "ERROR" or event_type in [
+                        "ExecutionStepFailure",
+                        "RunFailure",
+                    ]:
                         level_style = "red bold"
                     elif level == "WARNING":
                         level_style = "yellow"

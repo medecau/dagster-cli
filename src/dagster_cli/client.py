@@ -498,39 +498,98 @@ class DagsterClient:
                         ... on EventConnection {
                             events {
                                 __typename
-                                timestamp
-                                message
-                                level
-                                stepKey
-                                ... on LogMessageEvent {
-                                    userMessage
-                                    pid
+                                ... on MessageEvent {
+                                    timestamp
+                                    message
+                                    level
+                                    stepKey
                                 }
-                                ... on StepMaterializationEvent {
-                                    materialization {
-                                        label
-                                        description
+                                ... on LogMessageEvent {
+                                    timestamp
+                                    message
+                                    level
+                                    stepKey
+                                }
+                                ... on EngineEvent {
+                                    timestamp
+                                    message
+                                    level
+                                    stepKey
+                                }
+                                ... on ExecutionStepSuccessEvent {
+                                    timestamp
+                                    message
+                                    level
+                                    stepKey
+                                }
+                                ... on ExecutionStepFailureEvent {
+                                    timestamp
+                                    message
+                                    level
+                                    stepKey
+                                    error {
+                                        message
+                                        stack
+                                    }
+                                }
+                                ... on RunSuccessEvent {
+                                    timestamp
+                                    message
+                                    level
+                                }
+                                ... on RunFailureEvent {
+                                    timestamp
+                                    message
+                                    level
+                                    error {
+                                        message
+                                        stack
+                                    }
+                                }
+                                ... on RunStartEvent {
+                                    timestamp
+                                    message
+                                    level
+                                }
+                                ... on MaterializationEvent {
+                                    timestamp
+                                    message
+                                    level
+                                    stepKey
+                                    assetKey {
+                                        path
                                     }
                                 }
                                 ... on AssetMaterializationPlannedEvent {
+                                    timestamp
+                                    message
+                                    level
+                                    stepKey
                                     assetKey {
                                         path
                                     }
                                 }
                                 ... on HandledOutputEvent {
+                                    timestamp
+                                    message
+                                    level
+                                    stepKey
                                     outputName
                                 }
-                                ... on StepFailureEvent {
-                                    error {
-                                        message
-                                        stack
-                                    }
+                                ... on AlertStartEvent {
+                                    timestamp
+                                    message
+                                    level
                                 }
-                                ... on RunFailureEvent {
-                                    error {
-                                        message
-                                        stack
-                                    }
+                                ... on AlertSuccessEvent {
+                                    timestamp
+                                    message
+                                    level
+                                }
+                                ... on AlertFailureEvent {
+                                    timestamp
+                                    message
+                                    level
                                 }
                             }
                             cursor
@@ -606,6 +665,13 @@ class DagsterClient:
         """Format Unix timestamp to readable datetime."""
         if not timestamp:
             return "N/A"
+
+        # Convert string to float if needed
+        if isinstance(timestamp, str):
+            try:
+                timestamp = float(timestamp)
+            except ValueError:
+                return "N/A"
 
         # Check if timestamp is in seconds or milliseconds
         if timestamp < 10000000000:

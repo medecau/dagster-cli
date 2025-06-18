@@ -287,7 +287,8 @@ def create_mcp_server(client: DagsterClient) -> FastMCP:
             # Check for errors
             has_errors = any(
                 event.get("level") in ["ERROR", "CRITICAL"]
-                or event.get("__typename") in ["StepFailureEvent", "RunFailureEvent"]
+                or event.get("__typename")
+                in ["ExecutionStepFailureEvent", "RunFailureEvent"]
                 for event in events
             )
 
