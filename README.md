@@ -129,6 +129,8 @@ dgc mcp start
 Common AI use cases:
 - "Check which assets are failing and need attention"
 - "Why did the daily_revenue job fail yesterday?"
+- "Show me the error logs for the failed ETL job"
+- "Get the stderr output from run abc123"
 - "Materialize all stale marketing assets"
 
 ## Development

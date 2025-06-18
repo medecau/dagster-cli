@@ -237,6 +237,178 @@ def create_mcp_server(client: DagsterClient) -> FastMCP:
         except Exception as e:
             return {"status": "error", "error_type": "UnknownError", "error": str(e)}
 
+    # Tool: Get run logs
+    @mcp.tool()
+    async def get_run_logs(
+        run_id: str, limit: int = 100, include_stderr_on_error: bool = True
+    ) -> dict:
+        """Get event logs for a run, with optional stderr on errors.
+
+        Args:
+            run_id: Run ID to check (can be partial)
+            limit: Number of events to return (default: 100)
+            include_stderr_on_error: Auto-fetch stderr if errors found (default: True)
+
+        Returns:
+            Event logs and optionally stderr content
+        """
+        import requests
+
+        try:
+            # Handle partial run IDs
+            full_run_id = run_id
+            if len(run_id) < 20:
+                recent_runs = client.get_recent_runs(limit=50)
+                matching = [r for r in recent_runs if r["id"].startswith(run_id)]
+
+                if not matching:
+                    return {
+                        "status": "error",
+                        "error_type": "NotFound",
+                        "error": f"No runs found matching '{run_id}'",
+                    }
+                elif len(matching) > 1:
+                    return {
+                        "status": "error",
+                        "error_type": "Ambiguous",
+                        "error": f"Multiple runs found matching '{run_id}'",
+                        "matches": [
+                            {"id": r["id"], "job": r["pipeline"]["name"]}
+                            for r in matching[:5]
+                        ],
+                    }
+                else:
+                    full_run_id = matching[0]["id"]
+
+            # Get event logs
+            logs_data = client.get_run_logs(full_run_id, limit=limit)
+            events = logs_data.get("events", [])
+
+            # Check for errors
+            has_errors = any(
+                event.get("level") in ["ERROR", "CRITICAL"]
+                or event.get("__typename") in ["StepFailureEvent", "RunFailureEvent"]
+                for event in events
+            )
+
+            result = {
+                "status": "success",
+                "run_id": full_run_id,
+                "events": events,
+                "has_more": logs_data.get("hasMore", False),
+                "has_errors": has_errors,
+            }
+
+            # Auto-fetch stderr if there are errors
+            if has_errors and include_stderr_on_error:
+                log_urls = client.get_compute_log_urls(full_run_id)
+                stderr_url = log_urls.get("stderr_url")
+
+                if stderr_url:
+                    try:
+                        response = requests.get(stderr_url)
+                        response.raise_for_status()
+                        stderr_content = response.text.strip()
+                        result["stderr"] = stderr_content
+                        result["stderr_available"] = True
+                    except Exception as e:
+                        result["stderr_error"] = str(e)
+                        result["stderr_available"] = False
+                else:
+                    result["stderr_available"] = False
+                    result["stderr_note"] = (
+                        "stderr logs not available (may require Dagster+)"
+                    )
+
+            return result
+        except DagsterCLIError as e:
+            return {"status": "error", "error_type": type(e).__name__, "error": str(e)}
+        except Exception as e:
+            return {"status": "error", "error_type": "UnknownError", "error": str(e)}
+
+    # Tool: Get compute logs
+    @mcp.tool()
+    async def get_compute_logs(run_id: str, log_type: str = "stderr") -> dict:
+        """Get stdout/stderr logs for a run (Dagster+ only).
+
+        Args:
+            run_id: Run ID to check (can be partial)
+            log_type: Type of log to fetch - 'stdout' or 'stderr' (default: 'stderr')
+
+        Returns:
+            Log content or error if not available
+        """
+        import requests
+
+        try:
+            # Validate log_type
+            if log_type not in ["stdout", "stderr"]:
+                return {
+                    "status": "error",
+                    "error_type": "InvalidArgument",
+                    "error": "log_type must be 'stdout' or 'stderr'",
+                }
+
+            # Handle partial run IDs
+            full_run_id = run_id
+            if len(run_id) < 20:
+                recent_runs = client.get_recent_runs(limit=50)
+                matching = [r for r in recent_runs if r["id"].startswith(run_id)]
+
+                if not matching:
+                    return {
+                        "status": "error",
+                        "error_type": "NotFound",
+                        "error": f"No runs found matching '{run_id}'",
+                    }
+                elif len(matching) > 1:
+                    return {
+                        "status": "error",
+                        "error_type": "Ambiguous",
+                        "error": f"Multiple runs found matching '{run_id}'",
+                        "matches": [
+                            {"id": r["id"], "job": r["pipeline"]["name"]}
+                            for r in matching[:5]
+                        ],
+                    }
+                else:
+                    full_run_id = matching[0]["id"]
+
+            # Get compute log URLs
+            log_urls = client.get_compute_log_urls(full_run_id)
+            url = log_urls.get(f"{log_type}_url")
+
+            if not url:
+                return {
+                    "status": "error",
+                    "error_type": "NotAvailable",
+                    "error": f"No {log_type} logs available for this run",
+                    "note": "Compute logs may only be available for Dagster+ deployments",
+                }
+
+            # Download log content
+            response = requests.get(url)
+            response.raise_for_status()
+            log_content = response.text
+
+            return {
+                "status": "success",
+                "run_id": full_run_id,
+                "log_type": log_type,
+                "content": log_content,
+                "size": len(log_content),
+            }
+        except requests.RequestException as e:
+            return {
+                "status": "error",
+                "error_type": "DownloadError",
+                "error": f"Failed to download {log_type}: {str(e)}",
+            }
+        except DagsterCLIError as e:
+            return {"status": "error", "error_type": type(e).__name__, "error": str(e)}
+        except Exception as e:
+            return {"status": "error", "error_type": "UnknownError", "error": str(e)}
+
     return mcp
 
 

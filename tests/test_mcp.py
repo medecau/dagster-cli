@@ -116,6 +116,8 @@ async def test_mcp_tools_registered():
         "list_assets",
         "materialize_asset",
         "reload_repository",
+        "get_run_logs",
+        "get_compute_logs",
     ]
 
     for expected in expected_tools:
