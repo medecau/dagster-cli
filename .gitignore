@@ -46,4 +46,4 @@ site/
 *.ipynb
 
 # Manual test scripts
-test_mcp_manual.py
+CLAUDE.md
