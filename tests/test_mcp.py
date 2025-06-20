@@ -114,7 +114,6 @@ async def test_mcp_tools_registered():
         "get_run_status",
         "list_runs",
         "list_assets",
-        "materialize_asset",
         "reload_repository",
         "get_run_logs",
         "get_compute_logs",

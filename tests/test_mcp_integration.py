@@ -87,9 +87,6 @@ def mock_client():
         },
     ]
 
-    # Mock materialize_asset response
-    client.materialize_asset.return_value = "run_mat789"
-
     # Mock reload_repository_location response
     client.reload_repository_location.return_value = True
 

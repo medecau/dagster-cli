@@ -5,6 +5,7 @@ from mcp.server.fastmcp import FastMCP
 
 from dagster_cli.client import DagsterClient
 from dagster_cli.utils.errors import DagsterCLIError
+from dagster_cli.utils.run_utils import resolve_run_id
 
 
 def create_mcp_server(client: DagsterClient) -> FastMCP:
@@ -89,30 +90,26 @@ def create_mcp_server(client: DagsterClient) -> FastMCP:
             Run details including status, timing, and stats
         """
         try:
-            # Handle partial run IDs
-            full_run_id = run_id
-            if len(run_id) < 20:
-                recent_runs = client.get_recent_runs(limit=50)
-                matching = [r for r in recent_runs if r["id"].startswith(run_id)]
-
-                if not matching:
-                    return {
-                        "status": "error",
-                        "error_type": "NotFound",
-                        "error": f"No runs found matching '{run_id}'",
-                    }
-                elif len(matching) > 1:
+            # Resolve partial run ID if needed
+            full_run_id, error_msg, matching_runs = resolve_run_id(client, run_id)
+            
+            if error_msg:
+                if matching_runs:
                     return {
                         "status": "error",
                         "error_type": "Ambiguous",
-                        "error": f"Multiple runs found matching '{run_id}'",
+                        "error": error_msg,
                         "matches": [
                             {"id": r["id"], "job": r["pipeline"]["name"]}
-                            for r in matching[:5]
+                            for r in matching_runs
                         ],
                     }
                 else:
-                    full_run_id = matching[0]["id"]
+                    return {
+                        "status": "error",
+                        "error_type": "NotFound",
+                        "error": error_msg,
+                    }
 
             run = client.get_run_status(full_run_id)
 
@@ -174,45 +171,6 @@ def create_mcp_server(client: DagsterClient) -> FastMCP:
         except Exception as e:
             return {"status": "error", "error_type": "UnknownError", "error": str(e)}
 
-    # Tool: Materialize asset
-    @mcp.tool()
-    async def materialize_asset(
-        asset_key: str, partition_key: Optional[str] = None
-    ) -> dict:
-        """Trigger materialization of an asset.
-
-        Args:
-            asset_key: Asset key to materialize (e.g., 'my_asset' or 'prefix/my_asset')
-            partition_key: Optional partition to materialize
-
-        Returns:
-            Run ID for the materialization
-        """
-        try:
-            run_id = client.materialize_asset(
-                asset_key=asset_key, partition_key=partition_key
-            )
-
-            # Construct URL if possible
-            url = client.profile.get("url", "")
-            if url:
-                if not url.startswith("http"):
-                    url = f"https://{url}"
-                run_url = f"{url}/runs/{run_id}"
-            else:
-                run_url = None
-
-            return {
-                "status": "success",
-                "run_id": run_id,
-                "url": run_url,
-                "message": f"Asset '{asset_key}' materialization submitted",
-            }
-        except DagsterCLIError as e:
-            return {"status": "error", "error_type": type(e).__name__, "error": str(e)}
-        except Exception as e:
-            return {"status": "error", "error_type": "UnknownError", "error": str(e)}
-
     # Tool: Reload repository
     @mcp.tool()
     async def reload_repository(location_name: str) -> dict:
@@ -255,30 +213,26 @@ def create_mcp_server(client: DagsterClient) -> FastMCP:
         import requests
 
         try:
-            # Handle partial run IDs
-            full_run_id = run_id
-            if len(run_id) < 20:
-                recent_runs = client.get_recent_runs(limit=50)
-                matching = [r for r in recent_runs if r["id"].startswith(run_id)]
-
-                if not matching:
-                    return {
-                        "status": "error",
-                        "error_type": "NotFound",
-                        "error": f"No runs found matching '{run_id}'",
-                    }
-                elif len(matching) > 1:
+            # Resolve partial run ID if needed
+            full_run_id, error_msg, matching_runs = resolve_run_id(client, run_id)
+            
+            if error_msg:
+                if matching_runs:
                     return {
                         "status": "error",
                         "error_type": "Ambiguous",
-                        "error": f"Multiple runs found matching '{run_id}'",
+                        "error": error_msg,
                         "matches": [
                             {"id": r["id"], "job": r["pipeline"]["name"]}
-                            for r in matching[:5]
+                            for r in matching_runs
                         ],
                     }
                 else:
-                    full_run_id = matching[0]["id"]
+                    return {
+                        "status": "error",
+                        "error_type": "NotFound",
+                        "error": error_msg,
+                    }
 
             # Get event logs
             logs_data = client.get_run_logs(full_run_id, limit=limit)
@@ -350,30 +304,26 @@ def create_mcp_server(client: DagsterClient) -> FastMCP:
                     "error": "log_type must be 'stdout' or 'stderr'",
                 }
 
-            # Handle partial run IDs
-            full_run_id = run_id
-            if len(run_id) < 20:
-                recent_runs = client.get_recent_runs(limit=50)
-                matching = [r for r in recent_runs if r["id"].startswith(run_id)]
-
-                if not matching:
-                    return {
-                        "status": "error",
-                        "error_type": "NotFound",
-                        "error": f"No runs found matching '{run_id}'",
-                    }
-                elif len(matching) > 1:
+            # Resolve partial run ID if needed
+            full_run_id, error_msg, matching_runs = resolve_run_id(client, run_id)
+            
+            if error_msg:
+                if matching_runs:
                     return {
                         "status": "error",
                         "error_type": "Ambiguous",
-                        "error": f"Multiple runs found matching '{run_id}'",
+                        "error": error_msg,
                         "matches": [
                             {"id": r["id"], "job": r["pipeline"]["name"]}
-                            for r in matching[:5]
+                            for r in matching_runs
                         ],
                     }
                 else:
-                    full_run_id = matching[0]["id"]
+                    return {
+                        "status": "error",
+                        "error_type": "NotFound",
+                        "error": error_msg,
+                    }
 
             # Get compute log URLs
             log_urls = client.get_compute_log_urls(full_run_id)

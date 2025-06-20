@@ -14,6 +14,7 @@ from dagster_cli.utils.output import (
     print_run_details,
     create_spinner,
 )
+from dagster_cli.utils.run_utils import resolve_run_id
 
 
 app = typer.Typer(help="Run management", no_args_is_help=True)
@@ -74,26 +75,18 @@ def view(
     try:
         client = DagsterClient(profile)
 
-        # If partial ID provided, try to find full ID
-        full_run_id = run_id
-        if len(run_id) < 20:  # Likely a partial ID
-            with create_spinner("Finding run...") as progress:
-                task = progress.add_task("Finding run...", total=None)
-                recent_runs = client.get_recent_runs(limit=50)
-                progress.remove_task(task)
-
-            matching_runs = [r for r in recent_runs if r["id"].startswith(run_id)]
-
-            if not matching_runs:
-                print_error(f"No runs found matching '{run_id}'")
-                raise typer.Exit(1)
-            elif len(matching_runs) > 1:
-                print_error(f"Multiple runs found matching '{run_id}':")
-                for r in matching_runs[:5]:
+        # Resolve partial run ID if needed
+        with create_spinner("Finding run...") as progress:
+            task = progress.add_task("Finding run...", total=None)
+            full_run_id, error_msg, matching_runs = resolve_run_id(client, run_id)
+            progress.remove_task(task)
+        
+        if error_msg:
+            print_error(error_msg)
+            if matching_runs:
+                for r in matching_runs:
                     print_info(f"  - {r['id'][:16]}... ({r['pipeline']['name']})")
-                raise typer.Exit(1)
-            else:
-                full_run_id = matching_runs[0]["id"]
+            raise typer.Exit(1)
 
         with create_spinner("Fetching run details...") as progress:
             task = progress.add_task("Fetching run details...", total=None)
@@ -165,26 +158,18 @@ def logs(
     try:
         client = DagsterClient(profile)
 
-        # If partial ID provided, try to find full ID
-        full_run_id = run_id
-        if len(run_id) < 20:  # Likely a partial ID
-            with create_spinner("Finding run...") as progress:
-                task = progress.add_task("Finding run...", total=None)
-                recent_runs = client.get_recent_runs(limit=50)
-                progress.remove_task(task)
-
-            matching_runs = [r for r in recent_runs if r["id"].startswith(run_id)]
-
-            if not matching_runs:
-                print_error(f"No runs found matching '{run_id}'")
-                raise typer.Exit(1)
-            elif len(matching_runs) > 1:
-                print_error(f"Multiple runs found matching '{run_id}':")
-                for r in matching_runs[:5]:
+        # Resolve partial run ID if needed
+        with create_spinner("Finding run...") as progress:
+            task = progress.add_task("Finding run...", total=None)
+            full_run_id, error_msg, matching_runs = resolve_run_id(client, run_id)
+            progress.remove_task(task)
+        
+        if error_msg:
+            print_error(error_msg)
+            if matching_runs:
+                for r in matching_runs:
                     print_info(f"  - {r['id'][:16]}... ({r['pipeline']['name']})")
-                raise typer.Exit(1)
-            else:
-                full_run_id = matching_runs[0]["id"]
+            raise typer.Exit(1)
 
         # Handle mutually exclusive options
         if stdout and stderr:
