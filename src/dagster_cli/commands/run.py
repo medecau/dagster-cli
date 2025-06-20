@@ -149,8 +149,15 @@ def logs(
         None, "--output", "-o", help="Save logs to file instead of displaying"
     ),
     json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
+    no_stack: bool = typer.Option(
+        False, "--no-stack", help="Hide stack traces in error output"
+    ),
 ):
-    """View run logs."""
+    """View run logs.
+
+    Displays event logs for a Dagster run. For failed runs, automatically shows
+    Python stack traces when available (use --no-stack to hide them).
+    """
     import requests
     from rich.panel import Panel
     from rich.table import Table
@@ -263,6 +270,9 @@ def logs(
                 table.add_column("Type", style="blue")
                 table.add_column("Message", style="white")
 
+                # Collect stack traces for display after table
+                stack_traces = []
+
                 for event in events:
                     timestamp = client.format_timestamp(event.get("timestamp"))
                     level = event.get("level", "")
@@ -274,10 +284,32 @@ def logs(
                         error = event.get("error") or {}
                         if error.get("message"):
                             message = f"{message}\nError: {error['message']}"
+                        # Collect stack trace for later display
+                        if error.get("stack") and not no_stack:
+                            stack = error["stack"]
+                            # Handle case where stack might be a list of lines
+                            if isinstance(stack, list):
+                                stack = "\n".join(stack)
+                            stack_traces.append(
+                                {
+                                    "type": "Step Failure",
+                                    "step": event.get("stepKey", "Unknown"),
+                                    "stack": stack,
+                                }
+                            )
                     elif event.get("__typename") == "RunFailureEvent":
                         error = event.get("error") or {}
                         if error.get("message"):
                             message = f"{message}\nError: {error['message']}"
+                        # Collect stack trace for later display
+                        if error.get("stack") and not no_stack:
+                            stack = error["stack"]
+                            # Handle case where stack might be a list of lines
+                            if isinstance(stack, list):
+                                stack = "\n".join(stack)
+                            stack_traces.append(
+                                {"type": "Run Failure", "step": None, "stack": stack}
+                            )
 
                     # Color code based on level
                     if level == "ERROR" or event_type in [
@@ -300,6 +332,27 @@ def logs(
                     )
 
                 console.print(table)
+
+                # Display collected stack traces
+                if stack_traces:
+                    console.print()  # Add spacing
+                    for trace_info in stack_traces:
+                        title = f"Stack Trace - {trace_info['type']}"
+                        if trace_info.get("step"):
+                            title += f" (Step: {trace_info['step']})"
+
+                        console.print(
+                            Panel(
+                                trace_info["stack"],
+                                title=title,
+                                border_style="red",
+                                expand=False,
+                            )
+                        )
+                        console.print()  # Add spacing between stack traces
+
+                    # Add note about potential truncation
+                    print_info("Note: Stack trace may be truncated")
 
                 # If there are more events, indicate it
                 if logs_data.get("hasMore"):

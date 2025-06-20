@@ -112,6 +112,9 @@ def print_run_details(run: Dict[str, Any]) -> None:
     """Print detailed run information in a panel."""
     run_id = run["id"]
     job_name = run.get("pipeline", {}).get("name", "Unknown")
+    # Add note for internal asset job
+    if job_name == "__ASSET_JOB":
+        job_name = "__ASSET_JOB (asset job)"
     status = run.get("status", "Unknown")
 
     # Color code status
