@@ -452,11 +452,16 @@ class DagsterClient:
                                     assetMaterializations(limit: 1) {
                                         runId
                                         timestamp
+                                        stepKey
                                         runOrError {
                                             __typename
                                             ... on Run {
                                                 id
                                                 status
+                                                stepStats {
+                                                    stepKey
+                                                    status
+                                                }
                                             }
                                         }
                                     }

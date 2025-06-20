@@ -2,7 +2,7 @@
 
 import typer
 from typing import Optional
-from datetime import datetime, timedelta
+from datetime import datetime
 from rich import box
 from rich.table import Table
 
@@ -268,10 +268,7 @@ def materialize(
 @app.command()
 def health(
     all_assets: bool = typer.Option(
-        False, "--all", "-a", help="Show all assets (default: unhealthy only)"
-    ),
-    stale_hours: int = typer.Option(
-        24, "--stale-hours", help="Hours before asset is considered stale"
+        False, "--all", "-a", help="Show all assets (default: failed and never materialized only)"
     ),
     group: Optional[str] = typer.Option(
         None, "--group", "-g", help="Filter by asset group"
@@ -295,11 +292,7 @@ def health(
             return
 
         # Calculate health status for each asset
-        now = datetime.now()
-        stale_threshold = now - timedelta(hours=stale_hours)
-
         healthy_assets = []
-        stale_assets = []
         failed_assets = []
         never_materialized = []
 
@@ -312,7 +305,24 @@ def health(
             if materializations := asset.get("assetMaterializations", []):
                 latest = materializations[0]
                 run_info = latest.get("runOrError", {})
-                status = run_info.get("status", "UNKNOWN")
+                
+                # Get the step-specific status instead of overall run status
+                status = "UNKNOWN"
+                step_key = latest.get("stepKey")
+                if step_key and run_info.get("__typename") == "Run":
+                    # Look for the step status in stepStats
+                    step_stats = run_info.get("stepStats", [])
+                    for step_stat in step_stats:
+                        if step_stat.get("stepKey") == step_key:
+                            status = step_stat.get("status", "UNKNOWN")
+                            break
+                    else:
+                        # Fallback to run status if step not found
+                        status = run_info.get("status", "UNKNOWN")
+                else:
+                    # Fallback to run status if no stepKey
+                    status = run_info.get("status", "UNKNOWN")
+                
                 if timestamp := latest.get("timestamp"):
                     last_update = datetime.fromtimestamp(float(timestamp) / 1000)
                     last_update_str = last_update.strftime("%Y-%m-%d %H:%M:%S")
@@ -330,9 +340,6 @@ def health(
                 if status == "FAILURE":
                     asset_info["status"] = "Failed"
                     failed_assets.append(asset_info)
-                elif last_update and last_update < stale_threshold:
-                    asset_info["status"] = "Stale"
-                    stale_assets.append(asset_info)
                 else:
                     asset_info["status"] = "Healthy"
                     healthy_assets.append(asset_info)
@@ -348,10 +355,10 @@ def health(
                 )
         # Prepare output
         all_assets_list = (
-            failed_assets + never_materialized + stale_assets + healthy_assets
+            failed_assets + never_materialized + healthy_assets
         )
         unhealthy_count = (
-            len(failed_assets) + len(never_materialized) + len(stale_assets)
+            len(failed_assets) + len(never_materialized)
         )
 
         if json_output:
@@ -359,13 +366,12 @@ def health(
                 "summary": {
                     "total": len(assets),
                     "healthy": len(healthy_assets),
-                    "stale": len(stale_assets),
                     "failed": len(failed_assets),
                     "never_materialized": len(never_materialized),
                 },
                 "assets": all_assets_list
                 if all_assets
-                else (failed_assets + never_materialized + stale_assets),
+                else (failed_assets + never_materialized),
             }
             console.print_json(data=output)
         else:
@@ -373,7 +379,6 @@ def health(
             console.print("\n[bold]Asset Health Summary[/bold]")
             console.print(f"Total Assets: {len(assets)}")
             console.print(f"[green]Healthy: {len(healthy_assets)}[/green]")
-            console.print(f"[yellow]Stale: {len(stale_assets)}[/yellow]")
             console.print(f"[red]Failed: {len(failed_assets)}[/red]")
             console.print(f"[red]Never Materialized: {len(never_materialized)}[/red]")
 
@@ -381,7 +386,7 @@ def health(
             assets_to_show = (
                 all_assets_list
                 if all_assets
-                else (failed_assets + never_materialized + stale_assets)
+                else (failed_assets + never_materialized)
             )
 
             if assets_to_show:
@@ -403,8 +408,6 @@ def health(
                     # Color code status
                     if status == "Healthy":
                         status_display = f"[green]{status}[/green]"
-                    elif status == "Stale":
-                        status_display = f"[yellow]{status}[/yellow]"
                     else:
                         status_display = f"[red]{status}[/red]"
 
@@ -416,9 +419,6 @@ def health(
                     )
 
                 console.print(table)
-
-                if stale_assets and not all_assets:
-                    console.print(f"\n[dim]Stale threshold: {stale_hours} hours[/dim]")
             else:
                 if all_assets:
                     print_success("All assets are healthy!")
