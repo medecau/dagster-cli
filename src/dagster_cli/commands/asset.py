@@ -268,7 +268,10 @@ def materialize(
 @app.command()
 def health(
     all_assets: bool = typer.Option(
-        False, "--all", "-a", help="Show all assets (default: failed and never materialized only)"
+        False,
+        "--all",
+        "-a",
+        help="Show all assets (default: failed and never materialized only)",
     ),
     group: Optional[str] = typer.Option(
         None, "--group", "-g", help="Filter by asset group"
@@ -305,7 +308,7 @@ def health(
             if materializations := asset.get("assetMaterializations", []):
                 latest = materializations[0]
                 run_info = latest.get("runOrError", {})
-                
+
                 # Get the step-specific status instead of overall run status
                 status = "UNKNOWN"
                 step_key = latest.get("stepKey")
@@ -322,7 +325,7 @@ def health(
                 else:
                     # Fallback to run status if no stepKey
                     status = run_info.get("status", "UNKNOWN")
-                
+
                 if timestamp := latest.get("timestamp"):
                     last_update = datetime.fromtimestamp(float(timestamp) / 1000)
                     last_update_str = last_update.strftime("%Y-%m-%d %H:%M:%S")
@@ -354,12 +357,8 @@ def health(
                     }
                 )
         # Prepare output
-        all_assets_list = (
-            failed_assets + never_materialized + healthy_assets
-        )
-        unhealthy_count = (
-            len(failed_assets) + len(never_materialized)
-        )
+        all_assets_list = failed_assets + never_materialized + healthy_assets
+        unhealthy_count = len(failed_assets) + len(never_materialized)
 
         if json_output:
             output = {
@@ -384,9 +383,7 @@ def health(
 
             # Create table
             assets_to_show = (
-                all_assets_list
-                if all_assets
-                else (failed_assets + never_materialized)
+                all_assets_list if all_assets else (failed_assets + never_materialized)
             )
 
             if assets_to_show:
@@ -406,11 +403,11 @@ def health(
                     status = asset_info["status"]
 
                     # Color code status
-                    if status == "Healthy":
-                        status_display = f"[green]{status}[/green]"
-                    else:
-                        status_display = f"[red]{status}[/red]"
-
+                    status_display = (
+                        f"[green]{status}[/green]"
+                        if status == "Healthy"
+                        else f"[red]{status}[/red]"
+                    )
                     table.add_row(
                         asset_info["key"],
                         asset_info["group"],
@@ -419,11 +416,10 @@ def health(
                     )
 
                 console.print(table)
+            elif all_assets:
+                print_success("All assets are healthy!")
             else:
-                if all_assets:
-                    print_success("All assets are healthy!")
-                else:
-                    print_success("No unhealthy assets found!")
+                print_success("No unhealthy assets found!")
 
     except Exception as e:
         print_error(f"Failed to check asset health: {str(e)}")

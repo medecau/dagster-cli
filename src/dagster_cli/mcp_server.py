@@ -92,7 +92,7 @@ def create_mcp_server(client: DagsterClient) -> FastMCP:
         try:
             # Resolve partial run ID if needed
             full_run_id, error_msg, matching_runs = resolve_run_id(client, run_id)
-            
+
             if error_msg:
                 if matching_runs:
                     return {
@@ -215,7 +215,7 @@ def create_mcp_server(client: DagsterClient) -> FastMCP:
         try:
             # Resolve partial run ID if needed
             full_run_id, error_msg, matching_runs = resolve_run_id(client, run_id)
-            
+
             if error_msg:
                 if matching_runs:
                     return {
@@ -306,7 +306,7 @@ def create_mcp_server(client: DagsterClient) -> FastMCP:
 
             # Resolve partial run ID if needed
             full_run_id, error_msg, matching_runs = resolve_run_id(client, run_id)
-            
+
             if error_msg:
                 if matching_runs:
                     return {

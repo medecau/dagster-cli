@@ -80,7 +80,7 @@ def view(
             task = progress.add_task("Finding run...", total=None)
             full_run_id, error_msg, matching_runs = resolve_run_id(client, run_id)
             progress.remove_task(task)
-        
+
         if error_msg:
             print_error(error_msg)
             if matching_runs:
@@ -163,7 +163,7 @@ def logs(
             task = progress.add_task("Finding run...", total=None)
             full_run_id, error_msg, matching_runs = resolve_run_id(client, run_id)
             progress.remove_task(task)
-        
+
         if error_msg:
             print_error(error_msg)
             if matching_runs:
