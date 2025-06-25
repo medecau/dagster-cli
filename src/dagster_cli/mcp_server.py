@@ -8,22 +8,26 @@ from dagster_cli.utils.errors import DagsterCLIError
 from dagster_cli.utils.run_utils import resolve_run_id
 
 
-def create_mcp_server(client: DagsterClient) -> FastMCP:
+def create_mcp_server(profile_name: Optional[str]) -> FastMCP:
     """Create MCP server with Dagster+ tools and resources."""
     mcp = FastMCP("dagster-cli")
 
     # Tool: List jobs
     @mcp.tool()
-    async def list_jobs(location: Optional[str] = None) -> dict:
+    async def list_jobs(
+        location: Optional[str] = None, deployment: Optional[str] = None
+    ) -> dict:
         """List available Dagster jobs.
 
         Args:
             location: Optional filter by repository location
+            deployment: Optional deployment name (defaults to prod)
 
         Returns:
             List of jobs with their details
         """
         try:
+            client = DagsterClient(profile_name, deployment)
             jobs = client.list_jobs(location)
             return {"status": "success", "count": len(jobs), "jobs": jobs}
         except DagsterCLIError as e:
@@ -38,6 +42,7 @@ def create_mcp_server(client: DagsterClient) -> FastMCP:
         config: Optional[dict] = None,
         location: Optional[str] = None,
         repository: Optional[str] = None,
+        deployment: Optional[str] = None,
     ) -> dict:
         """Submit a job for execution.
 
@@ -46,11 +51,13 @@ def create_mcp_server(client: DagsterClient) -> FastMCP:
             config: Optional run configuration
             location: Optional repository location (overrides profile default)
             repository: Optional repository name (overrides profile default)
+            deployment: Optional deployment name (defaults to prod)
 
         Returns:
             Run ID and URL for the submitted job
         """
         try:
+            client = DagsterClient(profile_name, deployment)
             run_id = client.submit_job_run(
                 job_name=job_name,
                 run_config=config,
@@ -84,16 +91,18 @@ def create_mcp_server(client: DagsterClient) -> FastMCP:
 
     # Tool: Get run status
     @mcp.tool()
-    async def get_run_status(run_id: str) -> dict:
+    async def get_run_status(run_id: str, deployment: Optional[str] = None) -> dict:
         """Get the status of a specific run.
 
         Args:
             run_id: Run ID to check (can be partial)
+            deployment: Optional deployment name (defaults to prod)
 
         Returns:
             Run details including status, timing, and stats
         """
         try:
+            client = DagsterClient(profile_name, deployment)
             # Resolve partial run ID if needed
             full_run_id, error_msg, matching_runs = resolve_run_id(client, run_id)
 
@@ -132,17 +141,21 @@ def create_mcp_server(client: DagsterClient) -> FastMCP:
 
     # Tool: List recent runs
     @mcp.tool()
-    async def list_runs(limit: int = 10, status: Optional[str] = None) -> dict:
+    async def list_runs(
+        limit: int = 10, status: Optional[str] = None, deployment: Optional[str] = None
+    ) -> dict:
         """Get recent run history.
 
         Args:
             limit: Number of runs to return (default: 10)
             status: Optional filter by status (SUCCESS, FAILURE, STARTED, etc.)
+            deployment: Optional deployment name (defaults to prod)
 
         Returns:
             List of recent runs with their details
         """
         try:
+            client = DagsterClient(profile_name, deployment)
             runs = client.get_recent_runs(limit=limit, status=status)
             return {"status": "success", "count": len(runs), "runs": runs}
         except DagsterCLIError as e:
@@ -156,6 +169,7 @@ def create_mcp_server(client: DagsterClient) -> FastMCP:
         prefix: Optional[str] = None,
         group: Optional[str] = None,
         location: Optional[str] = None,
+        deployment: Optional[str] = None,
     ) -> dict:
         """List all assets in the deployment.
 
@@ -163,11 +177,13 @@ def create_mcp_server(client: DagsterClient) -> FastMCP:
             prefix: Filter assets by prefix
             group: Filter by asset group
             location: Filter by repository location
+            deployment: Optional deployment name (defaults to prod)
 
         Returns:
             List of assets with their details
         """
         try:
+            client = DagsterClient(profile_name, deployment)
             assets = client.list_assets(prefix=prefix, group=group, location=location)
             return {"status": "success", "count": len(assets), "assets": assets}
         except DagsterCLIError as e:
@@ -180,17 +196,20 @@ def create_mcp_server(client: DagsterClient) -> FastMCP:
     async def materialize_asset(
         asset_key: str,
         partition_key: Optional[str] = None,
+        deployment: Optional[str] = None,
     ) -> dict:
         """Trigger materialization of an asset.
 
         Args:
             asset_key: Asset key to materialize (e.g., 'my_asset' or 'prefix/my_asset')
             partition_key: Optional partition to materialize
+            deployment: Optional deployment name (defaults to prod)
 
         Returns:
             Run ID and URL for the materialization
         """
         try:
+            client = DagsterClient(profile_name, deployment)
             run_id = client.materialize_asset(
                 asset_key=asset_key,
                 partition_key=partition_key,
@@ -222,16 +241,20 @@ def create_mcp_server(client: DagsterClient) -> FastMCP:
 
     # Tool: Reload repository
     @mcp.tool()
-    async def reload_repository(location_name: str) -> dict:
+    async def reload_repository(
+        location_name: str, deployment: Optional[str] = None
+    ) -> dict:
         """Reload a repository location.
 
         Args:
             location_name: Name of the repository location to reload
+            deployment: Optional deployment name (defaults to prod)
 
         Returns:
             Success status
         """
         try:
+            client = DagsterClient(profile_name, deployment)
             success = client.reload_repository_location(location_name)
             return {
                 "status": "success" if success else "error",
@@ -247,7 +270,10 @@ def create_mcp_server(client: DagsterClient) -> FastMCP:
     # Tool: Get run logs
     @mcp.tool()
     async def get_run_logs(
-        run_id: str, limit: int = 100, include_stderr_on_error: bool = True
+        run_id: str,
+        limit: int = 100,
+        include_stderr_on_error: bool = True,
+        deployment: Optional[str] = None,
     ) -> dict:
         """Get event logs for a run, with optional stderr on errors.
 
@@ -255,6 +281,7 @@ def create_mcp_server(client: DagsterClient) -> FastMCP:
             run_id: Run ID to check (can be partial)
             limit: Number of events to return (default: 100)
             include_stderr_on_error: Auto-fetch stderr if errors found (default: True)
+            deployment: Optional deployment name (defaults to prod)
 
         Returns:
             Event logs and optionally stderr content
@@ -262,6 +289,7 @@ def create_mcp_server(client: DagsterClient) -> FastMCP:
         import requests
 
         try:
+            client = DagsterClient(profile_name, deployment)
             # Resolve partial run ID if needed
             full_run_id, error_msg, matching_runs = resolve_run_id(client, run_id)
 
@@ -332,12 +360,15 @@ def create_mcp_server(client: DagsterClient) -> FastMCP:
 
     # Tool: Get compute logs
     @mcp.tool()
-    async def get_compute_logs(run_id: str, log_type: str = "stderr") -> dict:
+    async def get_compute_logs(
+        run_id: str, log_type: str = "stderr", deployment: Optional[str] = None
+    ) -> dict:
         """Get stdout/stderr logs for a run (Dagster+ only).
 
         Args:
             run_id: Run ID to check (can be partial)
             log_type: Type of log to fetch - 'stdout' or 'stderr' (default: 'stderr')
+            deployment: Optional deployment name (defaults to prod)
 
         Returns:
             Log content or error if not available
@@ -353,6 +384,7 @@ def create_mcp_server(client: DagsterClient) -> FastMCP:
                     "error": "log_type must be 'stdout' or 'stderr'",
                 }
 
+            client = DagsterClient(profile_name, deployment)
             # Resolve partial run ID if needed
             full_run_id, error_msg, matching_runs = resolve_run_id(client, run_id)
 
@@ -412,13 +444,13 @@ def create_mcp_server(client: DagsterClient) -> FastMCP:
     return mcp
 
 
-def create_mcp_app(client: DagsterClient):
+def create_mcp_app(profile_name: Optional[str]):
     """Create FastAPI app with MCP server for HTTP transport."""
     from fastapi import FastAPI
     import dagster_cli
 
     # Create MCP server
-    mcp_server = create_mcp_server(client)
+    mcp_server = create_mcp_server(profile_name)
 
     # Create FastAPI app
     app = FastAPI(title="Dagster CLI MCP Server")

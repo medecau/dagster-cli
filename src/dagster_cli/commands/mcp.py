@@ -3,12 +3,6 @@
 import typer
 from typing import Optional
 
-from dagster_cli.client import DagsterClient
-from dagster_cli.constants import (
-    DEPLOYMENT_OPTION_NAME,
-    DEPLOYMENT_OPTION_SHORT,
-    DEPLOYMENT_OPTION_HELP,
-)
 from dagster_cli.utils.output import print_error, print_info
 
 
@@ -23,12 +17,6 @@ def start(
     profile: Optional[str] = typer.Option(
         None, "--profile", "-p", help="Use specific profile", envvar="DGC_PROFILE"
     ),
-    deployment: Optional[str] = typer.Option(
-        None,
-        DEPLOYMENT_OPTION_NAME,
-        DEPLOYMENT_OPTION_SHORT,
-        help=DEPLOYMENT_OPTION_HELP,
-    ),
 ):
     """Start MCP server exposing Dagster+ functionality.
 
@@ -37,45 +25,48 @@ def start(
     """
     try:
         # Validate authentication early - fail fast
-        client = DagsterClient(profile, deployment)
+        from dagster_cli.config import Config
+
+        config = Config()
+        profile_data = config.get_profile(profile)
+
+        if not profile_data.get("url") or not profile_data.get("token"):
+            raise Exception(
+                "No authentication found. Please run 'dgc auth login' first."
+            )
 
         # Show startup message
         print_info(f"Starting MCP server in {'HTTP' if http else 'stdio'} mode...")
-
-        # Show URL with deployment if specified
-        url = client.profile.get("url", "Unknown")
-        if client.deployment and client.deployment != "prod" and url != "Unknown":
-            url = url.replace("/prod", f"/{client.deployment}")
-        print_info(f"Connected to: {url}")
+        print_info(f"Connected to: {profile_data.get('url', 'Unknown')}")
 
         if http:
-            start_http_server(client)
+            start_http_server(profile)
         else:
-            start_stdio_server(client)
+            start_stdio_server(profile)
 
     except Exception as e:
         print_error(f"Failed to start MCP server: {str(e)}")
         raise typer.Exit(1) from e
 
 
-def start_stdio_server(client: DagsterClient):
+def start_stdio_server(profile_name: Optional[str]):
     """Start MCP server in stdio mode."""
     from dagster_cli.mcp_server import create_mcp_server
 
     # Create the MCP server with all tools/resources
-    server = create_mcp_server(client)
+    server = create_mcp_server(profile_name)
 
     # Run the FastMCP server using its built-in stdio transport
     server.run("stdio")
 
 
-def start_http_server(client: DagsterClient):
+def start_http_server(profile_name: Optional[str]):
     """Start MCP server in HTTP mode."""
     import uvicorn
     from dagster_cli.mcp_server import create_mcp_app
 
     # Create FastAPI app with MCP server
-    app = create_mcp_app(client)
+    app = create_mcp_app(profile_name)
 
     # Run with uvicorn
     print_info("Starting HTTP server on http://localhost:8000")

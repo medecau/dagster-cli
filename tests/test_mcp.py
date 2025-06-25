@@ -20,9 +20,9 @@ def test_mcp_command_exists():
 
 def test_mcp_start_requires_authentication():
     """Test that mcp start fails without authentication."""
-    with patch("dagster_cli.commands.mcp.DagsterClient") as mock_client:
+    with patch("dagster_cli.config.Config") as mock_config:
         # Simulate auth error
-        mock_client.side_effect = Exception("No authentication found")
+        mock_config.return_value.get_profile.return_value = {}
 
         result = runner.invoke(app, ["mcp", "start"])
         assert result.exit_code == 1
@@ -32,64 +32,68 @@ def test_mcp_start_requires_authentication():
 def test_mcp_start_stdio_mode():
     """Test MCP server starts in stdio mode (default)."""
     with (
-        patch("dagster_cli.commands.mcp.DagsterClient") as mock_client,
+        patch("dagster_cli.config.Config") as mock_config,
         patch("dagster_cli.commands.mcp.start_stdio_server") as mock_stdio,
     ):
         # Mock successful auth
-        mock_client.return_value = MagicMock()
+        mock_config.return_value.get_profile.return_value = {
+            "url": "test.dagster.cloud",
+            "token": "test_token",
+        }
 
         runner.invoke(app, ["mcp", "start"])
 
         # Should call stdio server, not http
-        mock_stdio.assert_called_once()
-        assert mock_client.called
+        mock_stdio.assert_called_once_with(None)
 
 
 def test_mcp_start_http_mode():
     """Test MCP server starts in HTTP mode with --http flag."""
     with (
-        patch("dagster_cli.commands.mcp.DagsterClient") as mock_client,
+        patch("dagster_cli.config.Config") as mock_config,
         patch("dagster_cli.commands.mcp.start_http_server") as mock_http,
     ):
         # Mock successful auth
-        mock_client.return_value = MagicMock()
+        mock_config.return_value.get_profile.return_value = {
+            "url": "test.dagster.cloud",
+            "token": "test_token",
+        }
 
         runner.invoke(app, ["mcp", "start", "--http"])
 
         # Should call http server, not stdio
-        mock_http.assert_called_once()
-        assert mock_client.called
+        mock_http.assert_called_once_with(None)
 
 
 def test_mcp_start_with_profile():
     """Test MCP server respects profile option."""
     with (
-        patch("dagster_cli.commands.mcp.DagsterClient") as mock_client,
-        patch("dagster_cli.commands.mcp.start_stdio_server"),
+        patch("dagster_cli.config.Config") as mock_config,
+        patch("dagster_cli.commands.mcp.start_stdio_server") as mock_stdio,
     ):
-        mock_client.return_value = MagicMock()
+        mock_config.return_value.get_profile.return_value = {
+            "url": "test.dagster.cloud",
+            "token": "test_token",
+        }
 
         runner.invoke(app, ["mcp", "start", "--profile", "staging"])
 
-        # Should pass profile to client
-        mock_client.assert_called_with("staging", None)
+        # Should pass profile to server
+        mock_stdio.assert_called_once_with("staging")
 
 
 def test_mcp_server_validates_auth_on_startup():
     """Test that server validates authentication immediately on startup."""
-    from dagster_cli.utils.errors import AuthenticationError
-
-    with patch("dagster_cli.commands.mcp.DagsterClient") as mock_client:
+    with patch("dagster_cli.config.Config") as mock_config:
         # Simulate auth failure
-        mock_client.side_effect = AuthenticationError("Invalid token")
+        mock_config.return_value.get_profile.return_value = {
+            "url": "test.dagster.cloud"
+        }  # Missing token
 
         result = runner.invoke(app, ["mcp", "start"])
 
         assert result.exit_code == 1
-        assert (
-            "Invalid token" in result.stdout
-            or "authentication" in result.stdout.lower()
-        )
+        assert "authentication" in result.stdout.lower()
 
 
 @pytest.mark.asyncio
