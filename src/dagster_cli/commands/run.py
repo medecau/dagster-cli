@@ -4,7 +4,12 @@ import typer
 from typing import Optional
 
 from dagster_cli.client import DagsterClient
-from dagster_cli.constants import DEFAULT_RUN_LIMIT
+from dagster_cli.constants import (
+    DEFAULT_RUN_LIMIT,
+    DEPLOYMENT_OPTION_NAME,
+    DEPLOYMENT_OPTION_SHORT,
+    DEPLOYMENT_OPTION_HELP,
+)
 from dagster_cli.utils.output import (
     console,
     print_error,
@@ -34,11 +39,17 @@ def list_runs(
     profile: Optional[str] = typer.Option(
         None, "--profile", "-p", help="Use specific profile"
     ),
+    deployment: Optional[str] = typer.Option(
+        None,
+        DEPLOYMENT_OPTION_NAME,
+        DEPLOYMENT_OPTION_SHORT,
+        help=DEPLOYMENT_OPTION_HELP,
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
 ):
     """List recent runs."""
     try:
-        client = DagsterClient(profile)
+        client = DagsterClient(profile, deployment)
 
         with create_spinner("Fetching runs...") as progress:
             task = progress.add_task("Fetching runs...", total=None)
@@ -69,11 +80,17 @@ def view(
     profile: Optional[str] = typer.Option(
         None, "--profile", "-p", help="Use specific profile"
     ),
+    deployment: Optional[str] = typer.Option(
+        None,
+        DEPLOYMENT_OPTION_NAME,
+        DEPLOYMENT_OPTION_SHORT,
+        help=DEPLOYMENT_OPTION_HELP,
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
 ):
     """View run details."""
     try:
-        client = DagsterClient(profile)
+        client = DagsterClient(profile, deployment)
 
         # Resolve partial run ID if needed
         with create_spinner("Finding run...") as progress:
@@ -113,6 +130,12 @@ def cancel(
     profile: Optional[str] = typer.Option(
         None, "--profile", "-p", help="Use specific profile"
     ),
+    deployment: Optional[str] = typer.Option(
+        None,
+        DEPLOYMENT_OPTION_NAME,
+        DEPLOYMENT_OPTION_SHORT,
+        help=DEPLOYMENT_OPTION_HELP,
+    ),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt"),
 ):
     """Cancel a running job."""
@@ -126,6 +149,12 @@ def logs(
     run_id: str = typer.Argument(..., help="Run ID to view logs (can be partial)"),
     profile: Optional[str] = typer.Option(
         None, "--profile", "-p", help="Use specific profile"
+    ),
+    deployment: Optional[str] = typer.Option(
+        None,
+        DEPLOYMENT_OPTION_NAME,
+        DEPLOYMENT_OPTION_SHORT,
+        help=DEPLOYMENT_OPTION_HELP,
     ),
     stdout: bool = typer.Option(
         False, "--stdout", help="Show stdout instead of events"
@@ -156,7 +185,7 @@ def logs(
     from rich.table import Table
 
     try:
-        client = DagsterClient(profile)
+        client = DagsterClient(profile, deployment)
 
         # Resolve partial run ID if needed
         with create_spinner("Finding run...") as progress:

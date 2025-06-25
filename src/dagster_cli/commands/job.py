@@ -5,6 +5,11 @@ import typer
 from typing import Optional
 
 from dagster_cli.client import DagsterClient
+from dagster_cli.constants import (
+    DEPLOYMENT_OPTION_NAME,
+    DEPLOYMENT_OPTION_SHORT,
+    DEPLOYMENT_OPTION_HELP,
+)
 from dagster_cli.utils.output import (
     console,
     print_success,
@@ -27,11 +32,17 @@ def list_jobs(
     profile: Optional[str] = typer.Option(
         None, "--profile", "-p", help="Use specific profile"
     ),
+    deployment: Optional[str] = typer.Option(
+        None,
+        DEPLOYMENT_OPTION_NAME,
+        DEPLOYMENT_OPTION_SHORT,
+        help=DEPLOYMENT_OPTION_HELP,
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
 ):
     """List all available jobs."""
     try:
-        client = DagsterClient(profile)
+        client = DagsterClient(profile, deployment)
 
         with create_spinner("Fetching jobs...") as progress:
             task = progress.add_task("Fetching jobs...", total=None)
@@ -71,6 +82,12 @@ def run(
     profile: Optional[str] = typer.Option(
         None, "--profile", "-p", help="Use specific profile"
     ),
+    deployment: Optional[str] = typer.Option(
+        None,
+        DEPLOYMENT_OPTION_NAME,
+        DEPLOYMENT_OPTION_SHORT,
+        help=DEPLOYMENT_OPTION_HELP,
+    ),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt"),
 ):
     """Submit a job for execution."""
@@ -104,7 +121,7 @@ def run(
             print_warning("Cancelled")
             return
 
-        client = DagsterClient(profile)
+        client = DagsterClient(profile, deployment)
 
         with create_spinner("Submitting job...") as progress:
             task = progress.add_task("Submitting job...", total=None)
@@ -119,7 +136,11 @@ def run(
         print_success("Job submitted successfully!")
         print_info(f"Run ID: {run_id}")
 
-        if url := client.profile.get("url", ""):
+        if base_url := client.profile.get("url", ""):
+            # Apply deployment to URL
+            url = base_url
+            if client.deployment and client.deployment != "prod":
+                url = url.replace("/prod", f"/{client.deployment}")
             if not url.startswith("http"):
                 url = f"https://{url}"
             print_info(f"View at: {url}/runs/{run_id}")
@@ -135,10 +156,16 @@ def view(
     profile: Optional[str] = typer.Option(
         None, "--profile", "-p", help="Use specific profile"
     ),
+    deployment: Optional[str] = typer.Option(
+        None,
+        DEPLOYMENT_OPTION_NAME,
+        DEPLOYMENT_OPTION_SHORT,
+        help=DEPLOYMENT_OPTION_HELP,
+    ),
 ):
     """View job details."""
     try:
-        client = DagsterClient(profile)
+        client = DagsterClient(profile, deployment)
 
         with create_spinner("Fetching job details...") as progress:
             task = progress.add_task("Fetching job details...", total=None)

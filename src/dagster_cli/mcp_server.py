@@ -59,8 +59,12 @@ def create_mcp_server(client: DagsterClient) -> FastMCP:
             )
 
             # Construct URL if possible
-            url = client.profile.get("url", "")
-            if url:
+            base_url = client.profile.get("url", "")
+            if base_url:
+                # Apply deployment to URL
+                url = base_url
+                if client.deployment and client.deployment != "prod":
+                    url = url.replace("/prod", f"/{client.deployment}")
                 if not url.startswith("http"):
                     url = f"https://{url}"
                 run_url = f"{url}/runs/{run_id}"
@@ -166,6 +170,51 @@ def create_mcp_server(client: DagsterClient) -> FastMCP:
         try:
             assets = client.list_assets(prefix=prefix, group=group, location=location)
             return {"status": "success", "count": len(assets), "assets": assets}
+        except DagsterCLIError as e:
+            return {"status": "error", "error_type": type(e).__name__, "error": str(e)}
+        except Exception as e:
+            return {"status": "error", "error_type": "UnknownError", "error": str(e)}
+
+    # Tool: Materialize asset
+    @mcp.tool()
+    async def materialize_asset(
+        asset_key: str,
+        partition_key: Optional[str] = None,
+    ) -> dict:
+        """Trigger materialization of an asset.
+
+        Args:
+            asset_key: Asset key to materialize (e.g., 'my_asset' or 'prefix/my_asset')
+            partition_key: Optional partition to materialize
+
+        Returns:
+            Run ID and URL for the materialization
+        """
+        try:
+            run_id = client.materialize_asset(
+                asset_key=asset_key,
+                partition_key=partition_key,
+            )
+
+            # Construct URL if possible
+            base_url = client.profile.get("url", "")
+            if base_url:
+                # Apply deployment to URL
+                url = base_url
+                if client.deployment and client.deployment != "prod":
+                    url = url.replace("/prod", f"/{client.deployment}")
+                if not url.startswith("http"):
+                    url = f"https://{url}"
+                run_url = f"{url}/runs/{run_id}"
+            else:
+                run_url = None
+
+            return {
+                "status": "success",
+                "run_id": run_id,
+                "url": run_url,
+                "message": f"Asset '{asset_key}' materialization submitted successfully",
+            }
         except DagsterCLIError as e:
             return {"status": "error", "error_type": type(e).__name__, "error": str(e)}
         except Exception as e:

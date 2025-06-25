@@ -23,6 +23,8 @@ def mock_client():
 
     # Mock profile data
     client.profile = {"url": "myorg.dagster.cloud/prod", "token": "test_token"}
+    # Mock deployment attribute
+    client.deployment = "prod"
 
     # Mock list_jobs response
     client.list_jobs.return_value = [

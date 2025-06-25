@@ -15,10 +15,13 @@ from dagster_cli.utils.errors import APIError, AuthenticationError
 class DagsterClient:
     """Wrapper for Dagster GraphQL client with authentication handling."""
 
-    def __init__(self, profile_name: Optional[str] = None):
+    def __init__(
+        self, profile_name: Optional[str] = None, deployment: Optional[str] = None
+    ):
         self.config = Config()
         self.profile_name = profile_name
         self.profile = self.config.get_profile(profile_name)
+        self.deployment = deployment or "prod"
 
         if not self.profile.get("url") or not self.profile.get("token"):
             raise AuthenticationError(
@@ -27,25 +30,100 @@ class DagsterClient:
 
         self._dagster_client: Optional[DagsterGraphQLClient] = None
         self._gql_client: Optional[Client] = None
+        self._resolved_deployment: Optional[str] = None
 
     @property
     def dagster_client(self) -> DagsterGraphQLClient:
         """Get or create Dagster GraphQL client."""
         if self._dagster_client is None:
             try:
+                url = self._get_deployment_url()
                 self._dagster_client = DagsterGraphQLClient(
-                    self.profile["url"],
+                    url,
                     headers={"Dagster-Cloud-Api-Token": self.profile["token"]},
                 )
             except Exception as e:
                 raise APIError(f"Failed to create Dagster client: {e}") from e
         return self._dagster_client
 
+    def _resolve_deployment_name(self) -> str:
+        """Resolve deployment name from branch name if needed."""
+        if self._resolved_deployment:
+            return self._resolved_deployment
+
+        # Common deployment names that don't need resolution
+        if self.deployment in ["prod", "staging"] or (
+            len(self.deployment) == 40 and self.deployment.isalnum()
+        ):
+            self._resolved_deployment = self.deployment
+            return self._resolved_deployment
+
+        # Try to resolve branch name to deployment name
+        try:
+            # Create a temporary client to list deployments
+            from gql import Client, gql
+            from gql.transport.requests import RequestsHTTPTransport
+
+            # Use prod URL to list deployments
+            url = self.profile["url"]
+            if not url.startswith("http"):
+                url = f"https://{url}"
+            graphql_url = f"{url}/graphql"
+
+            transport = RequestsHTTPTransport(
+                url=graphql_url,
+                headers={"Dagster-Cloud-Api-Token": self.profile["token"]},
+                use_json=True,
+                timeout=DEFAULT_TIMEOUT,
+            )
+
+            temp_client = Client(transport=transport, fetch_schema_from_transport=True)
+
+            query = gql("""
+                query {
+                    deployments {
+                        deploymentName
+                        branchDeploymentGitMetadata {
+                            branchName
+                        }
+                    }
+                }
+            """)
+
+            result = temp_client.execute(query)
+            deployments = result.get("deployments", [])
+
+            # Look for exact branch name match
+            for dep in deployments:
+                if dep.get("branchDeploymentGitMetadata"):
+                    branch_name = dep["branchDeploymentGitMetadata"].get("branchName")
+                    if branch_name == self.deployment:
+                        self._resolved_deployment = dep["deploymentName"]
+                        return self._resolved_deployment
+
+            # If no match found, return as-is (will likely fail but with clear error)
+            self._resolved_deployment = self.deployment
+            return self._resolved_deployment
+
+        except Exception:
+            # If we can't list deployments, just use the name as-is
+            self._resolved_deployment = self.deployment
+            return self._resolved_deployment
+
+    def _get_deployment_url(self) -> str:
+        """Get the URL with deployment applied."""
+        url = self.profile["url"]
+        resolved_deployment = self._resolve_deployment_name()
+        if resolved_deployment and resolved_deployment != "prod":
+            # Replace /prod with the specified deployment
+            url = url.replace("/prod", f"/{resolved_deployment}")
+        return url
+
     @property
     def gql_client(self) -> Client:
         """Get or create GQL client for custom queries."""
         if self._gql_client is None:
-            url = self.profile["url"]
+            url = self._get_deployment_url()
             if not url.startswith("http"):
                 url = f"https://{url}"
             graphql_url = f"{url}/graphql"
@@ -672,6 +750,34 @@ class DagsterClient:
         except Exception:
             # If the query is not available (e.g., not on Dagster+), return empty URLs
             return {"stdout_url": None, "stderr_url": None}
+
+    def list_deployments(self) -> List[Dict[str, Any]]:
+        """List all available deployments in Dagster+."""
+        try:
+            query = gql("""
+                query {
+                    deployments {
+                        deploymentId
+                        deploymentName
+                        deploymentStatus
+                        deploymentType
+                        isBranchDeployment
+                        branchDeploymentGitMetadata {
+                            branchName
+                            repoName
+                            branchUrl
+                            pullRequestUrl
+                            pullRequestStatus
+                            pullRequestNumber
+                        }
+                    }
+                }
+            """)
+
+            result = self.gql_client.execute(query)
+            return result.get("deployments", [])
+        except Exception as e:
+            raise APIError(f"Failed to list deployments: {e}") from e
 
     @staticmethod
     def format_timestamp(timestamp: Optional[float]) -> str:

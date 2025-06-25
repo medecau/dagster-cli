@@ -17,3 +17,9 @@ DEFAULT_RUN_LIMIT = 10
 DEFAULT_JOB_LIMIT = 20
 
 DATETIME_FORMAT = "%Y-%m-%d %H:%M:%S"
+
+# Deployment option configuration
+DEPLOYMENT_OPTION_NAME = "--deployment"
+DEPLOYMENT_OPTION_SHORT = "-d"
+DEPLOYMENT_OPTION_HELP = "Dagster+ deployment name (default: prod)"
+DEPLOYMENT_OPTION_DEFAULT = None  # None means use "prod"

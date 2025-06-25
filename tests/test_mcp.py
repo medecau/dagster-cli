@@ -72,7 +72,7 @@ def test_mcp_start_with_profile():
         runner.invoke(app, ["mcp", "start", "--profile", "staging"])
 
         # Should pass profile to client
-        mock_client.assert_called_with("staging")
+        mock_client.assert_called_with("staging", None)
 
 
 def test_mcp_server_validates_auth_on_startup():

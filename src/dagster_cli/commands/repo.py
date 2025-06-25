@@ -6,6 +6,11 @@ from rich import box
 from rich.table import Table
 
 from dagster_cli.client import DagsterClient
+from dagster_cli.constants import (
+    DEPLOYMENT_OPTION_NAME,
+    DEPLOYMENT_OPTION_SHORT,
+    DEPLOYMENT_OPTION_HELP,
+)
 from dagster_cli.utils.output import (
     console,
     print_success,
@@ -24,11 +29,17 @@ def list_repos(
     profile: Optional[str] = typer.Option(
         None, "--profile", "-p", help="Use specific profile"
     ),
+    deployment: Optional[str] = typer.Option(
+        None,
+        DEPLOYMENT_OPTION_NAME,
+        DEPLOYMENT_OPTION_SHORT,
+        help=DEPLOYMENT_OPTION_HELP,
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
 ):
     """List repositories and locations."""
     try:
-        client = DagsterClient(profile)
+        client = DagsterClient(profile, deployment)
 
         with create_spinner("Fetching repositories...") as progress:
             task = progress.add_task("Fetching repositories...", total=None)
@@ -85,6 +96,12 @@ def reload(
     profile: Optional[str] = typer.Option(
         None, "--profile", "-p", help="Use specific profile"
     ),
+    deployment: Optional[str] = typer.Option(
+        None,
+        DEPLOYMENT_OPTION_NAME,
+        DEPLOYMENT_OPTION_SHORT,
+        help=DEPLOYMENT_OPTION_HELP,
+    ),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt"),
 ):
     """Reload a repository location."""
@@ -94,7 +111,7 @@ def reload(
             print_warning("Cancelled")
             return
 
-        client = DagsterClient(profile)
+        client = DagsterClient(profile, deployment)
 
         with create_spinner(f"Reloading '{location}'...") as progress:
             task = progress.add_task(f"Reloading '{location}'...", total=None)

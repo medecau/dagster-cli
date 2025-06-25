@@ -32,6 +32,9 @@ dgc auth login
 dgc job list                    # List all jobs
 dgc run list --status FAILURE   # View failed runs
 dgc asset health                # Check asset health
+
+# 3. Access branch deployments
+dgc run view abc123 --deployment feat-xyz  # Debug branch deployment
 ```
 
 ## Features
@@ -42,6 +45,8 @@ dgc asset health                # Check asset health
 - **Asset Management** - List, materialize, and monitor asset health
 - **Repository Operations** - List and reload code locations
 - **Profile Support** - Manage multiple Dagster+ deployments
+- **Branch Deployment Support** - Access branch deployments for testing and debugging
+- **Deployment Discovery** - List and test available deployments
 - **MCP Integration** - AI assistant integration for monitoring and debugging
 
 ## Common Commands
@@ -81,6 +86,55 @@ dgc repo list                   # List locations
 dgc repo reload my_location     # Reload code
 ```
 
+### Deployment Management
+```bash
+dgc deployment list             # List all available deployments
+dgc deployment test staging     # Test if deployment is accessible
+
+# Example output:
+# NAME                                 TYPE        STATUS    ID
+# prod                                 Production  ACTIVE    12345
+# staging                              Staging     ACTIVE    23456  
+# feat/new-feature (abc123...)         Branch      ACTIVE    34567
+# fix/bug-123 (def456...) PR #42      Branch      ACTIVE    45678
+```
+
+### Working with Deployments
+
+#### Discovering Deployments
+List all available deployments in your Dagster+ organization:
+
+```bash
+dgc deployment list             # Shows all deployments with type and status
+```
+
+Branch deployments are automatically created from git branches and shown with their commit SHA.
+
+#### Accessing Deployments
+Use the `--deployment` flag to access any deployment:
+
+```bash
+# Default: production deployment
+dgc run list                    # Uses prod deployment
+
+# Access branch deployment by commit SHA (use full SHA from deployment list)
+dgc run view abc123 --deployment def456789abcdef123456789abcdef123456789a
+
+# Access named deployments
+dgc job list --deployment staging
+dgc asset health --deployment dev
+
+# Test if a deployment exists
+dgc deployment test feat-new-feature
+```
+
+The `--deployment` flag is available on all commands that interact with Dagster+:
+- `dgc run list/view/logs`
+- `dgc job list/view/run`
+- `dgc asset list/view/health/materialize`
+- `dgc repo list/reload`
+- `dgc status`
+
 ## Configuration
 
 ### Multiple Profiles
@@ -94,6 +148,7 @@ dgc auth switch staging             # Set default profile
 - `DAGSTER_CLOUD_TOKEN` - User token
 - `DAGSTER_CLOUD_URL` - Deployment URL
 - `DGC_PROFILE` - Default profile
+- `DAGSTER_CLOUD_DEPLOYMENT` - Default deployment (if not using --deployment flag)
 
 Credentials stored in `~/.config/dagster-cli/config.json` (permissions: 600)
 

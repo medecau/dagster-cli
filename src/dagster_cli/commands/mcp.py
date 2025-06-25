@@ -4,6 +4,11 @@ import typer
 from typing import Optional
 
 from dagster_cli.client import DagsterClient
+from dagster_cli.constants import (
+    DEPLOYMENT_OPTION_NAME,
+    DEPLOYMENT_OPTION_SHORT,
+    DEPLOYMENT_OPTION_HELP,
+)
 from dagster_cli.utils.output import print_error, print_info
 
 
@@ -18,6 +23,12 @@ def start(
     profile: Optional[str] = typer.Option(
         None, "--profile", "-p", help="Use specific profile", envvar="DGC_PROFILE"
     ),
+    deployment: Optional[str] = typer.Option(
+        None,
+        DEPLOYMENT_OPTION_NAME,
+        DEPLOYMENT_OPTION_SHORT,
+        help=DEPLOYMENT_OPTION_HELP,
+    ),
 ):
     """Start MCP server exposing Dagster+ functionality.
 
@@ -26,11 +37,16 @@ def start(
     """
     try:
         # Validate authentication early - fail fast
-        client = DagsterClient(profile)
+        client = DagsterClient(profile, deployment)
 
         # Show startup message
         print_info(f"Starting MCP server in {'HTTP' if http else 'stdio'} mode...")
-        print_info(f"Connected to: {client.profile.get('url', 'Unknown')}")
+
+        # Show URL with deployment if specified
+        url = client.profile.get("url", "Unknown")
+        if client.deployment and client.deployment != "prod" and url != "Unknown":
+            url = url.replace("/prod", f"/{client.deployment}")
+        print_info(f"Connected to: {url}")
 
         if http:
             start_http_server(client)

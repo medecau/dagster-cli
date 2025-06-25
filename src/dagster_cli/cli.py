@@ -9,8 +9,14 @@ from dagster_cli.commands.job import app as job_app
 from dagster_cli.commands.run import app as run_app
 from dagster_cli.commands.repo import app as repo_app
 from dagster_cli.commands.asset import app as asset_app
+from dagster_cli.commands.deployment import app as deployment_app
 from dagster_cli.commands.mcp import app as mcp_app
 from dagster_cli.config import Config
+from dagster_cli.constants import (
+    DEPLOYMENT_OPTION_NAME,
+    DEPLOYMENT_OPTION_SHORT,
+    DEPLOYMENT_OPTION_HELP,
+)
 from dagster_cli.utils.output import console, print_info
 
 
@@ -29,6 +35,7 @@ app.add_typer(job_app, name="job")
 app.add_typer(run_app, name="run")
 app.add_typer(repo_app, name="repo")
 app.add_typer(asset_app, name="asset")
+app.add_typer(deployment_app, name="deployment")
 app.add_typer(mcp_app, name="mcp")
 
 
@@ -77,7 +84,14 @@ def main(
 
 
 @app.command()
-def status():
+def status(
+    deployment: Optional[str] = typer.Option(
+        None,
+        DEPLOYMENT_OPTION_NAME,
+        DEPLOYMENT_OPTION_SHORT,
+        help=DEPLOYMENT_OPTION_HELP,
+    ),
+):
     """Show current status and configuration."""
     config = Config()
 
@@ -91,7 +105,14 @@ def status():
         profile = config.get_profile()
 
         print_info(f"Authenticated as profile '{profile_name}'")
-        print_info(f"Connected to: {profile.get('url', 'Unknown')}")
+
+        # Show URL with deployment if specified
+        url = profile.get("url", "Unknown")
+        if deployment and deployment != "prod" and url != "Unknown":
+            url = url.replace("/prod", f"/{deployment}")
+            print_info(f"Connected to: {url} (with --deployment {deployment})")
+        else:
+            print_info(f"Connected to: {url}")
 
         if profile.get("location"):
             print_info(f"Default location: {profile['location']}")

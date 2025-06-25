@@ -7,6 +7,11 @@ from rich import box
 from rich.table import Table
 
 from dagster_cli.client import DagsterClient
+from dagster_cli.constants import (
+    DEPLOYMENT_OPTION_NAME,
+    DEPLOYMENT_OPTION_SHORT,
+    DEPLOYMENT_OPTION_HELP,
+)
 from dagster_cli.utils.output import (
     console,
     print_success,
@@ -34,11 +39,17 @@ def list_assets(
     profile: Optional[str] = typer.Option(
         None, "--profile", help="Use specific profile"
     ),
+    deployment: Optional[str] = typer.Option(
+        None,
+        DEPLOYMENT_OPTION_NAME,
+        DEPLOYMENT_OPTION_SHORT,
+        help=DEPLOYMENT_OPTION_HELP,
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
 ):
     """List all assets."""
     try:
-        client = DagsterClient(profile)
+        client = DagsterClient(profile, deployment)
 
         with create_spinner("Fetching assets...") as progress:
             task = progress.add_task("Fetching assets...", total=None)
@@ -97,11 +108,17 @@ def view(
     profile: Optional[str] = typer.Option(
         None, "--profile", "-p", help="Use specific profile"
     ),
+    deployment: Optional[str] = typer.Option(
+        None,
+        DEPLOYMENT_OPTION_NAME,
+        DEPLOYMENT_OPTION_SHORT,
+        help=DEPLOYMENT_OPTION_HELP,
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
 ):
     """View asset details."""
     try:
-        client = DagsterClient(profile)
+        client = DagsterClient(profile, deployment)
 
         with create_spinner("Fetching asset details...") as progress:
             task = progress.add_task("Fetching asset details...", total=None)
@@ -229,6 +246,12 @@ def materialize(
     profile: Optional[str] = typer.Option(
         None, "--profile", help="Use specific profile"
     ),
+    deployment: Optional[str] = typer.Option(
+        None,
+        DEPLOYMENT_OPTION_NAME,
+        DEPLOYMENT_OPTION_SHORT,
+        help=DEPLOYMENT_OPTION_HELP,
+    ),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt"),
 ):
     """Materialize an asset."""
@@ -243,7 +266,7 @@ def materialize(
             print_warning("Cancelled")
             return
 
-        client = DagsterClient(profile)
+        client = DagsterClient(profile, deployment)
 
         with create_spinner("Submitting materialization...") as progress:
             task = progress.add_task("Submitting materialization...", total=None)
@@ -255,7 +278,11 @@ def materialize(
         print_success("Materialization submitted successfully!")
         print_info(f"Run ID: {run_id}")
 
-        if url := client.profile.get("url", ""):
+        if base_url := client.profile.get("url", ""):
+            # Apply deployment to URL
+            url = base_url
+            if client.deployment and client.deployment != "prod":
+                url = url.replace("/prod", f"/{client.deployment}")
             if not url.startswith("http"):
                 url = f"https://{url}"
             print_info(f"View at: {url}/runs/{run_id}")
@@ -279,11 +306,17 @@ def health(
     profile: Optional[str] = typer.Option(
         None, "--profile", help="Use specific profile"
     ),
+    deployment: Optional[str] = typer.Option(
+        None,
+        DEPLOYMENT_OPTION_NAME,
+        DEPLOYMENT_OPTION_SHORT,
+        help=DEPLOYMENT_OPTION_HELP,
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
 ):
     """Check asset health status."""
     try:
-        client = DagsterClient(profile)
+        client = DagsterClient(profile, deployment)
 
         with create_spinner("Checking asset health...") as progress:
             task = progress.add_task("Checking asset health...", total=None)
