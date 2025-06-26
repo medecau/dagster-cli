@@ -442,28 +442,3 @@ def create_mcp_server(profile_name: Optional[str]) -> FastMCP:
             return {"status": "error", "error_type": "UnknownError", "error": str(e)}
 
     return mcp
-
-
-def create_mcp_app(profile_name: Optional[str]):
-    """Create FastAPI app with MCP server for HTTP transport."""
-    from fastapi import FastAPI
-    import dagster_cli
-
-    # Create MCP server
-    mcp_server = create_mcp_server(profile_name)
-
-    # Create FastAPI app
-    app = FastAPI(title="Dagster CLI MCP Server")
-
-    # Mount MCP endpoints
-    app.include_router(mcp_server._get_router(), prefix="/mcp")
-
-    @app.get("/")
-    async def root():
-        return {
-            "name": "Dagster CLI MCP Server",
-            "version": dagster_cli.__version__,
-            "mcp_endpoint": "/mcp",
-        }
-
-    return app

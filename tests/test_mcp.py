@@ -62,7 +62,7 @@ def test_mcp_start_http_mode():
         runner.invoke(app, ["mcp", "start", "--http"])
 
         # Should call http server, not stdio
-        mock_http.assert_called_once_with(None)
+        mock_http.assert_called_once_with(None, "127.0.0.1", 8000, "/mcp/")
 
 
 def test_mcp_start_with_profile():

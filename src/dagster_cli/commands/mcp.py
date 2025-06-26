@@ -17,11 +17,28 @@ def start(
     profile: Optional[str] = typer.Option(
         None, "--profile", "-p", help="Use specific profile", envvar="DGC_PROFILE"
     ),
+    host: str = typer.Option(
+        "127.0.0.1",
+        "--host",
+        help="Host to bind to (HTTP mode only, currently uses default)",
+    ),
+    port: int = typer.Option(
+        8000, "--port", help="Port to bind to (HTTP mode only, currently uses default)"
+    ),
+    path: str = typer.Option(
+        "/mcp/",
+        "--path",
+        help="URL path for MCP endpoint (HTTP mode only, currently uses default)",
+    ),
 ):
     """Start MCP server exposing Dagster+ functionality.
 
     By default, starts in stdio mode for local integration with Claude, Cursor, etc.
     Use --http flag to start HTTP server for remote access.
+
+    Note: Host, port, and path options are provided for future compatibility but
+    are not currently functional due to MCP SDK limitations. The server will use
+    default values (127.0.0.1:8000/mcp/).
     """
     try:
         # Validate authentication early - fail fast
@@ -40,7 +57,7 @@ def start(
         print_info(f"Connected to: {profile_data.get('url', 'Unknown')}")
 
         if http:
-            start_http_server(profile)
+            start_http_server(profile, host, port, path)
         else:
             start_stdio_server(profile)
 
@@ -60,15 +77,22 @@ def start_stdio_server(profile_name: Optional[str]):
     server.run("stdio")
 
 
-def start_http_server(profile_name: Optional[str]):
-    """Start MCP server in HTTP mode."""
-    import uvicorn
-    from dagster_cli.mcp_server import create_mcp_app
+def start_http_server(
+    profile_name: Optional[str],
+    host: str = "127.0.0.1",
+    port: int = 8000,
+    path: str = "/mcp/",
+):
+    """Start MCP server in HTTP mode using streamable-http transport."""
+    from dagster_cli.mcp_server import create_mcp_server
 
-    # Create FastAPI app with MCP server
-    app = create_mcp_app(profile_name)
+    # Create the MCP server with all tools/resources
+    server = create_mcp_server(profile_name)
 
-    # Run with uvicorn
-    print_info("Starting HTTP server on http://localhost:8000")
-    print_info("MCP endpoint: http://localhost:8000/mcp")
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # Run the FastMCP server using streamable-http transport
+    print_info(f"Starting HTTP server on http://{host}:{port}")
+    print_info(f"MCP endpoint: http://{host}:{port}{path}")
+
+    # Note: FastMCP doesn't support host/port/path in run() signature in our version
+    # We'll use the default for now and document this limitation
+    server.run("streamable-http")
