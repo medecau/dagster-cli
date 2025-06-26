@@ -22,7 +22,19 @@ from dagster_cli.utils.output import (
 from dagster_cli.utils.run_utils import resolve_run_id
 
 
-app = typer.Typer(help="Run management", no_args_is_help=True)
+app = typer.Typer(
+    help="""[bold]Run management[/bold]
+
+[bold cyan]Available commands:[/bold cyan]
+  [green]list[/green]     List recent runs [dim](--limit, --status, --json)[/dim]
+  [green]view[/green]     View run details [dim]RUN_ID [--json][/dim]
+  [green]logs[/green]     View run logs [dim]RUN_ID [--stdout] [--stderr] [--json][/dim]
+  [green]cancel[/green]   Cancel a running job [dim]RUN_ID [--yes][/dim]
+
+[dim]Use 'dgc run COMMAND --help' for detailed options[/dim]""",
+    no_args_is_help=True,
+    rich_markup_mode="rich",
+)
 
 
 @app.command("list")

@@ -16,7 +16,16 @@ from dagster_cli.utils.output import (
 )
 
 
-app = typer.Typer(help="Deployment management", no_args_is_help=True)
+app = typer.Typer(
+    help="""[bold]Deployment management[/bold]
+
+[bold cyan]Available commands:[/bold cyan]
+  [green]list[/green]     List available deployments [dim](--json)[/dim]
+
+[dim]Use 'dgc deployment COMMAND --help' for detailed options[/dim]""",
+    no_args_is_help=True,
+    rich_markup_mode="rich",
+)
 
 
 def _format_deployment_name(deployment: dict) -> tuple[str, str]:

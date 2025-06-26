@@ -16,7 +16,19 @@ from dagster_cli.utils.output import (
 from dagster_cli.utils.errors import ConfigError
 
 
-app = typer.Typer(help="Authentication management", no_args_is_help=True)
+app = typer.Typer(
+    help="""[bold]Authentication management[/bold]
+
+[bold cyan]Available commands:[/bold cyan]
+  [green]login[/green]    Authenticate with Dagster+ [dim](--url, --token, --profile)[/dim]
+  [green]logout[/green]   Remove stored credentials [dim][--profile][/dim]
+  [green]status[/green]   Show authentication status
+  [green]switch[/green]   Switch between profiles [dim]PROFILE_NAME[/dim]
+
+[dim]Use 'dgc auth COMMAND --help' for detailed options[/dim]""",
+    no_args_is_help=True,
+    rich_markup_mode="rich",
+)
 
 
 @app.command()

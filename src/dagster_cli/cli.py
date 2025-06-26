@@ -30,13 +30,31 @@ app = typer.Typer(
 )
 
 # Add subcommands
-app.add_typer(auth_app, name="auth")
-app.add_typer(job_app, name="job")
-app.add_typer(run_app, name="run")
-app.add_typer(repo_app, name="repo")
-app.add_typer(asset_app, name="asset")
-app.add_typer(deployment_app, name="deployment")
-app.add_typer(mcp_app, name="mcp")
+app.add_typer(
+    auth_app,
+    name="auth",
+    help="Authentication management - login, logout, switch profiles",
+)
+app.add_typer(
+    job_app, name="job", help="Job operations - list, view details, run with config"
+)
+app.add_typer(
+    run_app, name="run", help="Run management - list, view logs, check status"
+)
+app.add_typer(
+    repo_app, name="repo", help="Repository management - list locations, reload"
+)
+app.add_typer(
+    asset_app, name="asset", help="Asset operations - list, materialize, check health"
+)
+app.add_typer(
+    deployment_app,
+    name="deployment",
+    help="Deployment management - list available deployments",
+)
+app.add_typer(
+    mcp_app, name="mcp", help="MCP operations - start server (stdio or --http mode)"
+)
 
 
 def version_callback(show: bool):

@@ -22,7 +22,19 @@ from dagster_cli.utils.output import (
 )
 
 
-app = typer.Typer(help="Asset operations", no_args_is_help=True)
+app = typer.Typer(
+    help="""[bold]Asset operations[/bold]
+
+[bold cyan]Available commands:[/bold cyan]
+  [green]list[/green]         List all assets [dim](--prefix, --group, --location, --json)[/dim]
+  [green]view[/green]         View asset details [dim]ASSET_KEY [--json][/dim]
+  [green]materialize[/green]  Materialize an asset [dim]ASSET_KEY [--partition] [--yes][/dim]
+  [green]health[/green]       Check asset health status [dim](--all, --group, --json)[/dim]
+
+[dim]Use 'dgc asset COMMAND --help' for detailed options[/dim]""",
+    no_args_is_help=True,
+    rich_markup_mode="rich",
+)
 
 
 @app.command("list")

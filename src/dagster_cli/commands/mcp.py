@@ -6,7 +6,19 @@ from typing import Optional
 from dagster_cli.utils.output import print_error, print_info
 
 
-app = typer.Typer(help="MCP operations", no_args_is_help=True)
+app = typer.Typer(
+    help="""[bold]MCP operations[/bold]
+
+[bold cyan]Available commands:[/bold cyan]
+  [green]start[/green]    Start MCP server exposing Dagster+ functionality
+           • Default: stdio mode for local integration
+           • [dim]--http[/dim] for HTTP mode (port 8000)
+           • [dim]--profile[/dim] to use specific profile
+
+[dim]Use 'dgc mcp COMMAND --help' for detailed options[/dim]""",
+    no_args_is_help=True,
+    rich_markup_mode="rich",
+)
 
 
 @app.command()

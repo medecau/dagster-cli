@@ -21,7 +21,18 @@ from dagster_cli.utils.output import (
 )
 
 
-app = typer.Typer(help="Job operations", no_args_is_help=True)
+app = typer.Typer(
+    help="""[bold]Job operations[/bold]
+
+[bold cyan]Available commands:[/bold cyan]
+  [green]list[/green]     List all jobs [dim](--location, --json)[/dim]
+  [green]view[/green]     View job details [dim]JOB_NAME [--json][/dim]
+  [green]run[/green]      Run a job [dim]JOB_NAME [--config FILE] [--tags][/dim]
+
+[dim]Use 'dgc job COMMAND --help' for detailed options[/dim]""",
+    no_args_is_help=True,
+    rich_markup_mode="rich",
+)
 
 
 @app.command("list")

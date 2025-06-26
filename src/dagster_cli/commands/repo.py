@@ -21,7 +21,17 @@ from dagster_cli.utils.output import (
 )
 
 
-app = typer.Typer(help="Repository management", no_args_is_help=True)
+app = typer.Typer(
+    help="""[bold]Repository management[/bold]
+
+[bold cyan]Available commands:[/bold cyan]
+  [green]list[/green]     List repository locations [dim](--json)[/dim]
+  [green]reload[/green]   Reload a repository location [dim]LOCATION_NAME[/dim]
+
+[dim]Use 'dgc repo COMMAND --help' for detailed options[/dim]""",
+    no_args_is_help=True,
+    rich_markup_mode="rich",
+)
 
 
 @app.command("list")
