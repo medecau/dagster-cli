@@ -18,6 +18,7 @@ from dagster_cli.constants import (
     DEPLOYMENT_OPTION_HELP,
 )
 from dagster_cli.utils.output import console, print_info
+from dagster_cli.utils.tldr import print_tldr
 
 
 app = typer.Typer(
@@ -64,6 +65,13 @@ def version_callback(show: bool):
         raise typer.Exit()
 
 
+def tldr_callback(show: bool):
+    """Show TLDR examples and exit."""
+    if show:
+        print_tldr("main")
+        raise typer.Exit()
+
+
 @app.callback()
 def main(
     version: bool = typer.Option(
@@ -72,6 +80,13 @@ def main(
         "-v",
         help="Show version and exit",
         callback=version_callback,
+        is_eager=True,
+    ),
+    tldr: bool = typer.Option(
+        False,
+        "--tldr",
+        help="Show practical examples and exit",
+        callback=tldr_callback,
         is_eager=True,
     ),
     profile: Optional[str] = typer.Option(

@@ -14,6 +14,7 @@ from dagster_cli.utils.output import (
     print_success,
     create_spinner,
 )
+from dagster_cli.utils.tldr import print_tldr
 
 
 app = typer.Typer(
@@ -23,9 +24,29 @@ app = typer.Typer(
   [green]list[/green]     List available deployments [dim](--json)[/dim]
 
 [dim]Use 'dgc deployment COMMAND --help' for detailed options[/dim]""",
-    no_args_is_help=True,
     rich_markup_mode="rich",
 )
+
+
+@app.callback(invoke_without_command=True)
+def deployment_callback(
+    ctx: typer.Context,
+    tldr: bool = typer.Option(
+        False,
+        "--tldr",
+        help="Show practical examples and exit",
+        is_eager=True,
+    ),
+):
+    """Deployment management callback."""
+    if tldr:
+        print_tldr("deployment")
+        raise typer.Exit()
+
+    # If no command was provided, show help
+    if ctx.invoked_subcommand is None:
+        console.print(ctx.get_help())
+        raise typer.Exit()
 
 
 def _format_deployment_name(deployment: dict) -> tuple[str, str]:
