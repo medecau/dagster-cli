@@ -23,6 +23,53 @@ from dagster_cli.utils.run_utils import resolve_run_id
 from dagster_cli.utils.tldr import print_tldr
 
 
+# Log level hierarchy for filtering
+LEVEL_HIERARCHY = {
+    "DEBUG": 0,
+    "INFO": 1,
+    "WARNING": 2,
+    "ERROR": 3,
+    "CRITICAL": 4,
+}
+
+# Map event types to log levels
+EVENT_TYPE_LEVELS = {
+    "ExecutionStepFailureEvent": "ERROR",
+    "RunFailureEvent": "ERROR",
+    "ExecutionStepSuccessEvent": "INFO",
+    "RunSuccessEvent": "INFO",
+    "MaterializationEvent": "INFO",
+    "AssetMaterializationPlannedEvent": "INFO",
+    "HandledOutputEvent": "INFO",
+    "EngineEvent": "INFO",
+    "RunStartEvent": "INFO",
+    "AlertStartEvent": "WARNING",
+    "AlertSuccessEvent": "INFO",
+    "AlertFailureEvent": "ERROR",
+}
+
+
+def should_include_event(event, min_level):
+    """Check if an event should be included based on the minimum log level."""
+    if not min_level:
+        return True
+
+    # Get the event's level
+    event_level = event.get("level")
+
+    # If no level field, check event type mapping
+    if not event_level:
+        event_type = event.get("__typename")
+        event_level = EVENT_TYPE_LEVELS.get(event_type)
+
+    # If still no level, include it
+    if not event_level or min_level not in LEVEL_HIERARCHY:
+        return True
+
+    # Compare levels
+    return LEVEL_HIERARCHY.get(event_level, -1) >= LEVEL_HIERARCHY.get(min_level, 0)
+
+
 app = typer.Typer(
     help="""[bold]Run management[/bold]
 
@@ -200,6 +247,17 @@ def logs(
         "--events-only",
         help="Only show events, don't auto-fetch stderr on errors",
     ),
+    level: Optional[str] = typer.Option(
+        None,
+        "--level",
+        "-l",
+        help="Minimum log level to show (DEBUG, INFO, WARNING, ERROR, CRITICAL)",
+    ),
+    errors_only: bool = typer.Option(
+        False,
+        "--errors-only",
+        help="Show only errors and critical events (shortcut for --level ERROR)",
+    ),
     output: Optional[str] = typer.Option(
         None, "--output", "-o", help="Save logs to file instead of displaying"
     ),
@@ -212,6 +270,11 @@ def logs(
 
     Displays event logs for a Dagster run. For failed runs, automatically shows
     Python stack traces when available (use --no-stack to hide them).
+
+    By default shows all log levels. Use --level to filter by minimum severity.
+    Examples:
+      dgc run logs <run-id> --level WARNING  # Show warnings and above
+      dgc run logs <run-id> --errors-only    # Show only errors and critical
     """
     import requests
     from rich.panel import Panel
@@ -237,6 +300,17 @@ def logs(
         if stdout and stderr:
             print_error("Cannot specify both --stdout and --stderr")
             raise typer.Exit(1)
+
+        # Handle level filtering options
+        filter_level = None
+        if errors_only:
+            filter_level = "ERROR"
+        elif level:
+            filter_level = level.upper()
+            if filter_level not in LEVEL_HIERARCHY:
+                print_error(f"Invalid log level: {level}")
+                print_info("Valid levels are: DEBUG, INFO, WARNING, ERROR, CRITICAL")
+                raise typer.Exit(1)
 
         # Get compute logs if requested
         if stdout or stderr:
@@ -289,13 +363,69 @@ def logs(
 
         else:
             # Default: show event logs
+            # Initialize counters
+            level_counts = {level: 0 for level in LEVEL_HIERARCHY}
+            all_events = []
+            filtered_events = []
+            cursor = None
+            has_more = True
+            total_fetched = 0
+
+            # Paginate through all events
             with create_spinner("Fetching event logs...") as progress:
                 task = progress.add_task("Fetching event logs...", total=None)
-                logs_data = client.get_run_logs(full_run_id, limit=100)
+
+                while has_more:
+                    # Fetch next page
+                    logs_data = client.get_run_logs(
+                        full_run_id, limit=100, cursor=cursor
+                    )
+                    events = logs_data.get("events", [])
+
+                    # Update total fetched
+                    total_fetched += len(events)
+                    progress.update(
+                        task,
+                        description=f"Fetching event logs... ({total_fetched} events)",
+                    )
+
+                    # Count all events by level
+                    for event in events:
+                        event_level = event.get("level")
+                        if not event_level:
+                            event_type = event.get("__typename")
+                            event_level = EVENT_TYPE_LEVELS.get(event_type)
+
+                        if event_level and event_level in level_counts:
+                            level_counts[event_level] += 1
+
+                    # Filter events if level specified
+                    if filter_level:
+                        for event in events:
+                            if should_include_event(event, filter_level):
+                                filtered_events.append(event)
+                    else:
+                        all_events.extend(events)
+
+                    # Check for more pages
+                    has_more = logs_data.get("hasMore", False)
+                    cursor = logs_data.get("cursor")
+
                 progress.remove_task(task)
 
-            events = logs_data.get("events", [])
-            if not events:
+            # Use filtered events if filtering was applied
+            events_to_display = filtered_events if filter_level else all_events
+
+            if not events_to_display and filter_level:
+                print_warning(f"No events found at {filter_level} level or above")
+                # Still show summary
+                console.print("\n[bold]Log Summary:[/bold]")
+                for lvl in LEVEL_HIERARCHY:
+                    count = level_counts.get(lvl, 0)
+                    console.print(f"  {lvl}: {count}")
+                console.print(f"\nTotal events: {total_fetched}")
+                raise typer.Exit(1)
+            elif not events_to_display:
                 print_warning("No log events found for this run")
                 raise typer.Exit(1)
 
@@ -304,14 +434,29 @@ def logs(
                 event.get("level") in ["ERROR", "CRITICAL"]
                 or event.get("__typename")
                 in ["ExecutionStepFailureEvent", "RunFailureEvent"]
-                for event in events
+                for event in events_to_display
             )
 
             if json_output:
-                console.print_json(data=events)
+                # Include statistics in JSON output
+                json_data = {
+                    "run_id": full_run_id,
+                    "events": events_to_display,
+                    "statistics": {
+                        "total_events": total_fetched,
+                        "levels": level_counts,
+                        "filter_applied": filter_level,
+                        "events_shown": len(events_to_display),
+                    },
+                }
+                console.print_json(data=json_data)
             else:
                 # Display events in a table
-                table = Table(title=f"Event Logs for Run {full_run_id[:8]}...")
+                title = f"Event Logs for Run {full_run_id[:8]}..."
+                if filter_level:
+                    title += f" (Filtered: {filter_level} and above)"
+
+                table = Table(title=title)
                 table.add_column("Time", style="cyan", no_wrap=True)
                 table.add_column("Level", style="yellow")
                 table.add_column("Type", style="blue")
@@ -320,7 +465,7 @@ def logs(
                 # Collect stack traces for display after table
                 stack_traces = []
 
-                for event in events:
+                for event in events_to_display:
                     timestamp = client.format_timestamp(event.get("timestamp"))
                     level = event.get("level", "")
                     event_type = event.get("__typename", "").replace("Event", "")
@@ -401,11 +546,31 @@ def logs(
                     # Add note about potential truncation
                     print_info("Note: Stack trace may be truncated")
 
-                # If there are more events, indicate it
-                if logs_data.get("hasMore"):
-                    print_info(
-                        f"\nShowing first {len(events)} events. More events available."
+                # Display log summary
+                console.print("\n[dim]─[/dim]" * 50)
+                console.print(
+                    f"\n[bold]Log Summary[/bold] (Total events: {total_fetched}):"
+                )
+                for lvl in LEVEL_HIERARCHY:
+                    count = level_counts.get(lvl, 0)
+                    if count > 0:
+                        if lvl == "ERROR" or lvl == "CRITICAL":
+                            style = "red"
+                        elif lvl == "WARNING":
+                            style = "yellow"
+                        elif lvl == "INFO":
+                            style = "green"
+                        else:
+                            style = "dim"
+                        console.print(f"  [{style}]• {lvl}: {count}[/{style}]")
+
+                if filter_level:
+                    console.print(
+                        f"\n[dim]Showing: {filter_level} and above ({len(events_to_display)} events)[/dim]"
                     )
+                else:
+                    console.print("\n[dim]Showing: ALL levels[/dim]")
+                console.print("[dim]─[/dim]" * 50)
 
             # Auto-fetch stderr if there are errors (unless --events-only)
             if has_errors and not events_only and not json_output:

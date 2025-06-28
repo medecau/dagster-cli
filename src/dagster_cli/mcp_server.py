@@ -8,6 +8,53 @@ from dagster_cli.utils.errors import DagsterCLIError
 from dagster_cli.utils.run_utils import resolve_run_id
 
 
+# Log level hierarchy for filtering
+LEVEL_HIERARCHY = {
+    "DEBUG": 0,
+    "INFO": 1,
+    "WARNING": 2,
+    "ERROR": 3,
+    "CRITICAL": 4,
+}
+
+# Map event types to log levels
+EVENT_TYPE_LEVELS = {
+    "ExecutionStepFailureEvent": "ERROR",
+    "RunFailureEvent": "ERROR",
+    "ExecutionStepSuccessEvent": "INFO",
+    "RunSuccessEvent": "INFO",
+    "MaterializationEvent": "INFO",
+    "AssetMaterializationPlannedEvent": "INFO",
+    "HandledOutputEvent": "INFO",
+    "EngineEvent": "INFO",
+    "RunStartEvent": "INFO",
+    "AlertStartEvent": "WARNING",
+    "AlertSuccessEvent": "INFO",
+    "AlertFailureEvent": "ERROR",
+}
+
+
+def should_include_event(event, min_level):
+    """Check if an event should be included based on the minimum log level."""
+    if not min_level:
+        return True
+
+    # Get the event's level
+    event_level = event.get("level")
+
+    # If no level field, check event type mapping
+    if not event_level:
+        event_type = event.get("__typename")
+        event_level = EVENT_TYPE_LEVELS.get(event_type)
+
+    # If still no level, include it
+    if not event_level or min_level not in LEVEL_HIERARCHY:
+        return True
+
+    # Compare levels
+    return LEVEL_HIERARCHY.get(event_level, -1) >= LEVEL_HIERARCHY.get(min_level, 0)
+
+
 def create_mcp_server(profile_name: Optional[str]) -> FastMCP:
     """Create MCP server with Dagster+ tools and resources."""
     mcp = FastMCP("dagster-cli")
@@ -272,19 +319,21 @@ def create_mcp_server(profile_name: Optional[str]) -> FastMCP:
     async def get_run_logs(
         run_id: str,
         limit: int = 100,
+        level: Optional[str] = None,
         include_stderr_on_error: bool = True,
         deployment: Optional[str] = None,
     ) -> dict:
-        """Get event logs for a run, with optional stderr on errors.
+        """Get event logs for a run, with optional level filtering.
 
         Args:
             run_id: Run ID to check (can be partial)
-            limit: Number of events to return (default: 100)
+            limit: Max events to return after filtering (default: 100)
+            level: Minimum log level to include (DEBUG/INFO/WARNING/ERROR/CRITICAL)
             include_stderr_on_error: Auto-fetch stderr if errors found (default: True)
             deployment: Optional deployment name (defaults to prod)
 
         Returns:
-            Event logs and optionally stderr content
+            Filtered events with complete level statistics
         """
         import requests
 
@@ -311,23 +360,94 @@ def create_mcp_server(profile_name: Optional[str]) -> FastMCP:
                         "error": error_msg,
                     }
 
-            # Get event logs
-            logs_data = client.get_run_logs(full_run_id, limit=limit)
-            events = logs_data.get("events", [])
+            # Validate level if provided
+            filter_level = None
+            if level:
+                filter_level = level.upper()
+                if filter_level not in LEVEL_HIERARCHY:
+                    return {
+                        "status": "error",
+                        "error_type": "InvalidArgument",
+                        "error": f"Invalid log level: {level}. Valid levels are: DEBUG, INFO, WARNING, ERROR, CRITICAL",
+                    }
 
-            # Check for errors
+            # Initialize counters
+            level_counts = {lvl: 0 for lvl in LEVEL_HIERARCHY}
+            all_events = []
+            filtered_events = []
+            cursor = None
+            has_more = True
+            total_fetched = 0
+
+            # Paginate through all events
+            while has_more:
+                # Fetch next page
+                logs_data = client.get_run_logs(full_run_id, limit=100, cursor=cursor)
+                events = logs_data.get("events", [])
+
+                # Update total fetched
+                total_fetched += len(events)
+
+                # Count all events by level
+                for event in events:
+                    event_level = event.get("level")
+                    if not event_level:
+                        event_type = event.get("__typename")
+                        event_level = EVENT_TYPE_LEVELS.get(event_type)
+
+                    if event_level and event_level in level_counts:
+                        level_counts[event_level] += 1
+
+                # Filter events if level specified
+                if filter_level:
+                    for event in events:
+                        if should_include_event(event, filter_level):
+                            filtered_events.append(event)
+                            # Stop if we have enough filtered events
+                            if len(filtered_events) >= limit:
+                                has_more = False
+                                break
+                else:
+                    all_events.extend(events)
+                    # Stop if we have enough events (no filtering)
+                    if len(all_events) >= limit:
+                        has_more = False
+                        break
+
+                # Check for more pages
+                if has_more:
+                    has_more = logs_data.get("hasMore", False)
+                    cursor = logs_data.get("cursor")
+
+            # Use filtered events if filtering was applied, limit results
+            events_to_return = (
+                filtered_events[:limit] if filter_level else all_events[:limit]
+            )
+
+            # Check for errors in returned events
             has_errors = any(
                 event.get("level") in ["ERROR", "CRITICAL"]
                 or event.get("__typename")
                 in ["ExecutionStepFailureEvent", "RunFailureEvent"]
-                for event in events
+                for event in events_to_return
             )
 
             result = {
                 "status": "success",
                 "run_id": full_run_id,
-                "events": events,
-                "has_more": logs_data.get("hasMore", False),
+                "events": events_to_return,
+                "statistics": {
+                    "total_events": total_fetched,
+                    "levels": level_counts,
+                    "filter_applied": filter_level,
+                    "events_matching_filter": len(filtered_events)
+                    if filter_level
+                    else total_fetched,
+                    "events_returned": len(events_to_return),
+                },
+                "has_more_filtered": len(filtered_events) > limit
+                if filter_level
+                else len(all_events) > limit,
                 "has_errors": has_errors,
             }
 
