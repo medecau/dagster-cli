@@ -10,6 +10,7 @@ from dagster_cli.commands.run import app as run_app
 from dagster_cli.commands.repo import app as repo_app
 from dagster_cli.commands.asset import app as asset_app
 from dagster_cli.commands.deployment import app as deployment_app
+from dagster_cli.commands.automation import app as automation_app
 from dagster_cli.commands.mcp import app as mcp_app
 from dagster_cli.config import Config
 from dagster_cli.constants import (
@@ -52,6 +53,11 @@ app.add_typer(
     deployment_app,
     name="deployment",
     help="Deployment management - list available deployments",
+)
+app.add_typer(
+    automation_app,
+    name="automation",
+    help="Automation management - list schedules and sensors",
 )
 app.add_typer(
     mcp_app, name="mcp", help="MCP operations - start server (stdio or --http mode)"
@@ -154,6 +160,41 @@ def status(
     else:
         console.print("[yellow]Not authenticated[/yellow]")
         console.print("Run 'dgc auth login' to get started")
+
+
+@app.command()
+def config(
+    key: Optional[str] = typer.Argument(None, help="Configuration key to get/set"),
+    value: Optional[str] = typer.Argument(None, help="Value to set"),
+    list_all: bool = typer.Option(
+        False, "--list", "-l", help="List all configuration values"
+    ),
+):
+    """Get or set configuration values."""
+    config_obj = Config()
+
+    if list_all:
+        profile = config_obj.get_profile()
+        console.print("[bold]Current configuration:[/bold]")
+        for k, v in profile.items():
+            if k != "token":  # Don't show token
+                console.print(f"  {k}: {v}")
+    elif key and value:
+        # Setting a value - implement in future
+        print_info("Configuration setting not yet implemented")
+    elif key:
+        # Getting a value
+        profile = config_obj.get_profile()
+        if key in profile and key != "token":
+            console.print(profile[key])
+        else:
+            console.print(f"Unknown configuration key: {key}")
+    else:
+        console.print("Specify a key to get, or use --list to see all")
+
+
+if __name__ == "__main__":
+    app()
 
 
 @app.command()

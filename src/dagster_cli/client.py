@@ -1,14 +1,14 @@
 """GraphQL client wrapper for Dagster+ API."""
 
-from typing import Optional, Dict, List, Any
 from datetime import datetime
+from typing import Any, Dict, List, Optional
 
 from dagster_graphql import DagsterGraphQLClient, DagsterGraphQLClientError
 from gql import Client, gql
 from gql.transport.requests import RequestsHTTPTransport
 
 from dagster_cli.config import Config
-from dagster_cli.constants import DEFAULT_TIMEOUT, DATETIME_FORMAT
+from dagster_cli.constants import DATETIME_FORMAT, DEFAULT_TIMEOUT
 from dagster_cli.utils.errors import APIError, AuthenticationError
 
 
@@ -778,6 +778,392 @@ class DagsterClient:
             return result.get("deployments", [])
         except Exception as e:
             raise APIError(f"Failed to list deployments: {e}") from e
+
+    def list_automations(self) -> List[Dict[str, Any]]:
+        """List all schedules and sensors."""
+        try:
+            query = gql("""
+                query ListAutomations {
+                    repositoriesOrError {
+                        ... on RepositoryConnection {
+                            nodes {
+                                name
+                                location {
+                                    name
+                                }
+                                schedules {
+                                    name
+                                    cronSchedule
+                                    pipelineName
+                                    description
+                                    scheduleState {
+                                        status
+                                        ticks(limit: 1) {
+                                            timestamp
+                                            runIds
+                                            status
+                                            runs {
+                                                id
+                                                status
+                                                startTime
+                                            }
+                                        }
+                                    }
+                                }
+                                sensors {
+                                    name
+                                    targets {
+                                        pipelineName
+                                    }
+                                    description
+                                    sensorState {
+                                        status
+                                        ticks(limit: 1) {
+                                            timestamp
+                                            runIds
+                                            status
+                                            runs {
+                                                id
+                                                status
+                                                startTime
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            """)
+
+            result = self.gql_client.execute(query)
+            automations = []
+
+            if "repositoriesOrError" in result:
+                repositories = result["repositoriesOrError"].get("nodes", [])
+                for repo in repositories:
+                    location_name = repo.get("location", {}).get("name", "")
+                    repo_name = repo.get("name", "")
+
+                    # Add schedules
+                    for schedule in repo.get("schedules", []):
+                        last_tick = None
+                        last_run_status = None
+                        last_run_timestamp = None
+                        tick_status = None
+                        tick_run_count = 0
+                        
+                        if schedule.get("scheduleState", {}).get("ticks"):
+                            tick = schedule["scheduleState"]["ticks"][0]
+                            last_tick = tick.get("timestamp")
+                            tick_status = tick.get("status", "SKIPPED")
+                            
+                            # Get status and timestamp of the last run if any
+                            runs = tick.get("runs", [])
+                            run_ids = tick.get("runIds", [])
+                            tick_run_count = len(run_ids)
+                            
+                            if runs:
+                                # Use the status and time of the first (most recent) run
+                                last_run_status = runs[0].get("status", "UNKNOWN")
+                                last_run_timestamp = runs[0].get("startTime")
+                            elif run_ids:
+                                # If we have runIds but no run data, mark as unknown
+                                last_run_status = "UNKNOWN"
+                            elif tick_status == "SKIPPED":
+                                # If the tick was skipped, show that
+                                last_run_status = "SKIPPED"
+
+                        automations.append({
+                            "name": schedule["name"],
+                            "type": "Schedule",
+                            "target": schedule.get("pipelineName", ""),
+                            "description": schedule.get("description", ""),
+                            "status": (
+                                schedule.get("scheduleState", {})
+                                .get("status", "STOPPED")
+                            ),
+                            "cron_schedule": schedule.get("cronSchedule", ""),
+                            "last_tick": last_tick,
+                            "last_run_status": last_run_status,
+                            "last_run_timestamp": last_run_timestamp,
+                            "tick_status": tick_status,
+                            "tick_run_count": tick_run_count,
+                            "location": location_name,
+                            "repository": repo_name,
+                        })
+
+                    # Add sensors
+                    for sensor in repo.get("sensors", []):
+                        last_tick = None
+                        last_run_status = None
+                        last_run_timestamp = None
+                        tick_status = None
+                        tick_run_count = 0
+                        
+                        if sensor.get("sensorState", {}).get("ticks"):
+                            tick = sensor["sensorState"]["ticks"][0]
+                            last_tick = tick.get("timestamp")
+                            tick_status = tick.get("status", "SKIPPED")
+                            
+                            # Get status and timestamp of the last run if any
+                            runs = tick.get("runs", [])
+                            run_ids = tick.get("runIds", [])
+                            tick_run_count = len(run_ids)
+                            
+                            if runs:
+                                # Use the status and time of the first (most recent) run
+                                last_run_status = runs[0].get("status", "UNKNOWN")
+                                last_run_timestamp = runs[0].get("startTime")
+                            elif run_ids:
+                                # If we have runIds but no run data, mark as unknown
+                                last_run_status = "UNKNOWN"
+                            elif tick_status == "SKIPPED":
+                                # If the tick was skipped, show that
+                                last_run_status = "SKIPPED"
+
+                        # Get target from targets array
+                        targets = sensor.get("targets", [])
+                        target = targets[0].get("pipelineName", "") if targets else ""
+
+                        automations.append({
+                            "name": sensor["name"],
+                            "type": "Sensor",
+                            "target": target,
+                            "description": sensor.get("description", ""),
+                            "status": (
+                                sensor.get("sensorState", {})
+                                .get("status", "STOPPED")
+                            ),
+                            "cron_schedule": None,  # Sensors don't have cron schedules
+                            "last_tick": last_tick,
+                            "last_run_status": last_run_status,
+                            "last_run_timestamp": last_run_timestamp,
+                            "tick_status": tick_status,
+                            "tick_run_count": tick_run_count,
+                            "location": location_name,
+                            "repository": repo_name,
+                        })
+
+            # Sort automations by name
+            return sorted(automations, key=lambda x: x["name"])
+        except Exception as e:
+            raise APIError(f"Failed to list automations: {e}") from e
+
+    def get_automation_details(self, name: str) -> Optional[Dict[str, Any]]:
+        """Get detailed information about a specific automation."""
+        try:
+            # First try to find if it's a schedule
+            schedule_query = gql("""
+                query GetScheduleDetails {
+                    repositoriesOrError {
+                        ... on RepositoryConnection {
+                            nodes {
+                                name
+                                location {
+                                    name
+                                }
+                                schedules {
+                                    name
+                                    cronSchedule
+                                    pipelineName
+                                    description
+                                    executionTimezone
+                                    scheduleState {
+                                        status
+                                        ticks(limit: 10) {
+                                            timestamp
+                                            runIds
+                                            status
+                                            error {
+                                                message
+                                            }
+                                            runs {
+                                                id
+                                                status
+                                                startTime
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            """)
+
+            result = self.gql_client.execute(schedule_query)
+            
+            if "repositoriesOrError" in result:
+                repositories = result["repositoriesOrError"].get("nodes", [])
+                for repo in repositories:
+                    for schedule in repo.get("schedules", []):
+                        if schedule["name"] == name:
+                            return {
+                                "name": schedule["name"],
+                                "type": "Schedule",
+                                "target": schedule.get("pipelineName", ""),
+                                "description": schedule.get("description", ""),
+                                "cron_schedule": schedule.get("cronSchedule", ""),
+                                "execution_timezone": (
+                                    schedule.get("executionTimezone", "")
+                                ),
+                                "status": (
+                                    schedule.get("scheduleState", {})
+                                    .get("status", "STOPPED")
+                                ),
+                                "recent_ticks": (
+                                    schedule.get("scheduleState", {})
+                                    .get("ticks", [])
+                                ),
+                                "location": repo.get("location", {}).get("name", ""),
+                                "repository": repo.get("name", ""),
+                            }
+
+            # If not found as schedule, try sensor
+            sensor_query = gql("""
+                query GetSensorDetails {
+                    repositoriesOrError {
+                        ... on RepositoryConnection {
+                            nodes {
+                                name
+                                location {
+                                    name
+                                }
+                                sensors {
+                                    name
+                                    targets {
+                                        pipelineName
+                                    }
+                                    description
+                                    minIntervalSeconds
+                                    sensorState {
+                                        status
+                                        ticks(limit: 10) {
+                                            timestamp
+                                            runIds
+                                            status
+                                            error {
+                                                message
+                                            }
+                                            runs {
+                                                id
+                                                status
+                                                startTime
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            """)
+
+            result = self.gql_client.execute(sensor_query)
+            
+            if "repositoriesOrError" in result:
+                repositories = result["repositoriesOrError"].get("nodes", [])
+                for repo in repositories:
+                    for sensor in repo.get("sensors", []):
+                        if sensor["name"] == name:
+                            targets = sensor.get("targets", [])
+                            target = (
+                                targets[0].get("pipelineName", "")
+                                if targets else ""
+                            )
+                            
+                            return {
+                                "name": sensor["name"],
+                                "type": "Sensor",
+                                "target": target,
+                                "description": sensor.get("description", ""),
+                                "min_interval_seconds": (
+                                    sensor.get("minIntervalSeconds")
+                                ),
+                                "status": (
+                                    sensor.get("sensorState", {})
+                                    .get("status", "STOPPED")
+                                ),
+                                "recent_ticks": (
+                                    sensor.get("sensorState", {})
+                                    .get("ticks", [])
+                                ),
+                                "location": repo.get("location", {}).get("name", ""),
+                                "repository": repo.get("name", ""),
+                            }
+
+            return None
+        except Exception as e:
+            raise APIError(f"Failed to get automation details: {e}") from e
+
+    def get_automation_runs(self, name: str, limit: int = 10) -> List[Dict[str, Any]]:
+        """Get runs triggered by an automation."""
+        try:
+            # Get automation details to find its ticks with run IDs
+            automation = self.get_automation_details(name)
+            if not automation:
+                raise APIError(f"Automation '{name}' not found")
+
+            # Collect all runs from recent ticks
+            all_runs = []
+            for tick in automation.get("recent_ticks", []):
+                # If we have run data in the tick, use it
+                tick_runs = tick.get("runs", [])
+                if tick_runs:
+                    # Add basic run info from tick data
+                    for run in tick_runs:
+                        all_runs.append({
+                            "id": run["id"],
+                            "status": run["status"],
+                            "pipeline": {"name": automation["target"]},
+                            # We'll need to fetch full details for timestamps
+                        })
+                elif tick.get("runIds"):
+                    # Fallback: if we only have run IDs, fetch full details
+                    for run_id in tick.get("runIds", []):
+                        run = self.get_run_status(run_id)
+                        if run:
+                            all_runs.append(run)
+
+            # Limit the results
+            all_runs = all_runs[:limit]
+
+            # For runs that only have basic info, fetch full details
+            for i, run in enumerate(all_runs):
+                if "startTime" not in run and run.get("id"):
+                    full_run = self.get_run_status(run["id"])
+                    if full_run:
+                        all_runs[i] = full_run
+
+            return all_runs
+        except Exception as e:
+            raise APIError(f"Failed to get automation runs: {e}") from e
+
+    def get_automation_ticks(self, name: str, limit: int = 20) -> List[Dict[str, Any]]:
+        """Get tick history for an automation."""
+        try:
+            # Get automation details which includes recent ticks
+            automation = self.get_automation_details(name)
+            if not automation:
+                raise APIError(f"Automation '{name}' not found")
+
+            ticks = []
+            for tick in automation.get("recent_ticks", [])[:limit]:
+                ticks.append({
+                    "timestamp": tick.get("timestamp"),
+                    "status": tick.get("status", "SKIPPED"),
+                    "run_count": len(tick.get("runIds", [])),
+                    "run_ids": tick.get("runIds", []),
+                    "error": (
+                        tick.get("error", {}).get("message")
+                        if tick.get("error") else None
+                    ),
+                })
+
+            return ticks
+        except Exception as e:
+            raise APIError(f"Failed to get automation ticks: {e}") from e
 
     @staticmethod
     def format_timestamp(timestamp: Optional[float]) -> str:

@@ -181,3 +181,149 @@ def print_profiles_table(profiles: Dict[str, Dict[str, str]], current: str) -> N
         table.add_row(name, url, location, is_current)
 
     console.print(table)
+
+
+def print_automations_table(automations: List[Dict[str, Any]]) -> None:
+    """Print automations (schedules and sensors) in a formatted table."""
+    table = Table(box=box.ROUNDED)
+
+    table.add_column("Name", style="cyan")
+    table.add_column("Type", style="magenta")
+    table.add_column("Target", style="blue")
+    table.add_column("Status", style="white")
+    table.add_column("Last Tick", style="white")
+    table.add_column("Last Run", style="white")
+
+    for automation in automations:
+        name = automation["name"]
+        target = automation["target"]
+        status = automation.get("status", "STOPPED")
+        
+        # Format type - show cron schedule for schedules, "Sensor" for sensors
+        if automation["type"] == "Schedule":
+            type_display = automation.get("cron_schedule", "Schedule")
+        else:
+            type_display = "Sensor"
+        
+        # Color code status
+        if status == "RUNNING":
+            status_display = f"[green]{status}[/green]"
+        elif status == "STOPPED":
+            status_display = f"[yellow]{status}[/yellow]"
+        else:
+            status_display = status
+
+        # Format last tick - show run count or failure
+        tick_status = automation.get("tick_status")
+        tick_run_count = automation.get("tick_run_count", 0)
+        
+        if not automation.get("last_tick"):
+            last_tick_display = "—"
+        elif tick_status == "FAILURE":
+            last_tick_display = "[red]FAILURE[/red]"
+        elif tick_run_count > 0:
+            last_tick_display = f"{tick_run_count} run{'s' if tick_run_count != 1 else ''}"
+        else:
+            last_tick_display = "[dim]SKIPPED[/dim]"
+        
+        # Format last run - show colored timestamp based on status
+        last_run_status = automation.get("last_run_status", "—")
+        last_run_timestamp = automation.get("last_run_timestamp")
+        
+        if last_run_timestamp:
+            formatted_time = DagsterClient.format_timestamp(last_run_timestamp)
+            if last_run_status == "SUCCESS":
+                last_run_display = f"[green]{formatted_time}[/green]"
+            elif last_run_status == "FAILURE":
+                last_run_display = f"[red]{formatted_time}[/red]"
+            else:
+                last_run_display = formatted_time
+        else:
+            last_run_display = "—"
+
+        table.add_row(name, type_display, target, status_display, last_tick_display, last_run_display)
+
+    console.print(table)
+
+
+def print_automation_details(automation: Dict[str, Any]) -> None:
+    """Print detailed automation information in a panel."""
+    name = automation["name"]
+    auto_type = automation["type"]
+    target = automation["target"]
+    status = automation.get("status", "STOPPED")
+    
+    # Color code status
+    if status == "RUNNING":
+        status_display = f"[green]{status} ✓[/green]"
+    elif status == "STOPPED":
+        status_display = f"[yellow]{status} ⏸[/yellow]"
+    else:
+        status_display = status
+
+    # Build content
+    content = f"""[cyan]Name:[/cyan]        {name}
+[cyan]Type:[/cyan]        {auto_type}
+[cyan]Target:[/cyan]      {target}
+[cyan]Status:[/cyan]      {status_display}
+[cyan]Location:[/cyan]    {automation.get('location', 'Unknown')}
+[cyan]Repository:[/cyan]  {automation.get('repository', 'Unknown')}"""
+
+    if auto_type == "Schedule":
+        content += f"\n[cyan]Schedule:[/cyan]    {automation.get('cron_schedule', 'N/A')}"
+        if automation.get('execution_timezone'):
+            content += f"\n[cyan]Timezone:[/cyan]    {automation['execution_timezone']}"
+    elif auto_type == "Sensor":
+        if automation.get('min_interval_seconds'):
+            content += f"\n[cyan]Min Interval:[/cyan] {automation['min_interval_seconds']}s"
+
+    if automation.get('description'):
+        content += f"\n[cyan]Description:[/cyan] {automation['description']}"
+
+    # Add recent tick summary
+    recent_ticks = automation.get('recent_ticks', [])
+    if recent_ticks:
+        success_count = sum(1 for t in recent_ticks if t.get('status') == 'SUCCESS')
+        failure_count = sum(1 for t in recent_ticks if t.get('status') == 'FAILURE')
+        skip_count = sum(1 for t in recent_ticks if t.get('status') == 'SKIPPED')
+        
+        content += f"\n\n[cyan]Recent Activity:[/cyan]"
+        content += f"\n  Last {len(recent_ticks)} ticks: {success_count} success, {failure_count} failed, {skip_count} skipped"
+
+    panel = Panel(content, title=f"{auto_type} Details", box=box.ROUNDED)
+    console.print(panel)
+
+
+def print_automation_ticks_table(ticks: List[Dict[str, Any]]) -> None:
+    """Print automation tick history in a formatted table."""
+    table = Table(box=box.ROUNDED)
+
+    table.add_column("Timestamp", style="cyan", no_wrap=True)
+    table.add_column("Status", style="white")
+    table.add_column("Runs", style="magenta")
+    table.add_column("Error", style="red")
+
+    for tick in ticks:
+        timestamp = DagsterClient.format_timestamp(tick.get("timestamp"))
+        status = tick.get("status", "SKIPPED")
+        
+        # Color code status
+        if status == "SUCCESS":
+            status_display = f"[green]{status}[/green]"
+        elif status == "FAILURE":
+            status_display = f"[red]{status}[/red]"
+        elif status == "SKIPPED":
+            status_display = f"[dim]{status}[/dim]"
+        else:
+            status_display = status
+
+        run_count = tick.get("run_count", 0)
+        run_display = f"{run_count} run{'s' if run_count != 1 else ''}" if run_count > 0 else "—"
+
+        error = tick.get("error", "")
+        if error and len(error) > 50:
+            error = error[:47] + "..."
+
+        table.add_row(timestamp, status_display, run_display, error or "—")
+
+    console.print(table)
