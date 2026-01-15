@@ -195,38 +195,3 @@ def config(
 
 if __name__ == "__main__":
     app()
-
-
-@app.command()
-def config(
-    key: Optional[str] = typer.Argument(None, help="Configuration key to get/set"),
-    value: Optional[str] = typer.Argument(None, help="Value to set"),
-    list_all: bool = typer.Option(
-        False, "--list", "-l", help="List all configuration values"
-    ),
-):
-    """Get or set configuration values."""
-    config_obj = Config()
-
-    if list_all:
-        profile = config_obj.get_profile()
-        console.print("[bold]Current configuration:[/bold]")
-        for k, v in profile.items():
-            if k != "token":  # Don't show token
-                console.print(f"  {k}: {v}")
-    elif key and value:
-        # Setting a value - implement in future
-        print_info("Configuration setting not yet implemented")
-    elif key:
-        # Getting a value
-        profile = config_obj.get_profile()
-        if key in profile and key != "token":
-            console.print(profile[key])
-        else:
-            console.print(f"Unknown configuration key: {key}")
-    else:
-        console.print("Specify a key to get, or use --list to see all")
-
-
-if __name__ == "__main__":
-    app()

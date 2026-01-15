@@ -10,10 +10,11 @@ fix:			## Run linters and formatters.
 check:			## Run linters in check mode.
 	uv run ruff check .
 	uv run ruff format --check .
+	uv run ty check .
 
 test: check		## Run tests.
 	uv run pytest
 
-publish: test check	## Build and publish to PyPI.
+publish: test	## Build and publish to PyPI.
 	uv build
 	uv publish

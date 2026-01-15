@@ -1,11 +1,11 @@
 """Tests for automation commands."""
 
 import pytest
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 from typer.testing import CliRunner
 
 from dagster_cli.cli import app
-from dagster_cli.utils.errors import APIError, AuthenticationError
+from dagster_cli.utils.errors import APIError
 
 
 runner = CliRunner()
@@ -57,7 +57,7 @@ class TestAutomationList:
         ]
 
         result = runner.invoke(app, ["automation", "list"])
-        
+
         assert result.exit_code == 0
         assert "Found 2 automations" in result.output
         assert "daily_update" in result.output
@@ -72,7 +72,7 @@ class TestAutomationList:
         mock_instance.list_automations.return_value = []
 
         result = runner.invoke(app, ["automation", "list"])
-        
+
         assert result.exit_code == 0
         assert "No automations found" in result.output
 
@@ -89,7 +89,7 @@ class TestAutomationList:
         ]
 
         result = runner.invoke(app, ["automation", "list", "--json"])
-        
+
         assert result.exit_code == 0
         assert '"name": "test_schedule"' in result.output
         assert '"type": "Schedule"' in result.output
@@ -100,7 +100,7 @@ class TestAutomationList:
         mock_instance.list_automations.side_effect = APIError("Failed to connect")
 
         result = runner.invoke(app, ["automation", "list"])
-        
+
         assert result.exit_code == 1
         assert "Failed to list automations" in result.output
 
@@ -129,7 +129,7 @@ class TestAutomationView:
         }
 
         result = runner.invoke(app, ["automation", "view", "daily_update"])
-        
+
         assert result.exit_code == 0
         assert "Schedule Details" in result.output
         assert "daily_update" in result.output
@@ -142,7 +142,7 @@ class TestAutomationView:
         mock_instance.get_automation_details.return_value = None
 
         result = runner.invoke(app, ["automation", "view", "nonexistent"])
-        
+
         assert result.exit_code == 1
         assert "Automation 'nonexistent' not found" in result.output
 
@@ -157,7 +157,7 @@ class TestAutomationView:
         }
 
         result = runner.invoke(app, ["automation", "view", "test_sensor", "--json"])
-        
+
         assert result.exit_code == 0
         assert '"name": "test_sensor"' in result.output
         assert '"type": "Sensor"' in result.output
@@ -187,7 +187,7 @@ class TestAutomationHistory:
         ]
 
         result = runner.invoke(app, ["automation", "history", "daily_update"])
-        
+
         assert result.exit_code == 0
         assert "Showing 2 runs" in result.output
         assert "abc123" in result.output
@@ -214,8 +214,10 @@ class TestAutomationHistory:
             },
         ]
 
-        result = runner.invoke(app, ["automation", "history", "daily_update", "--ticks"])
-        
+        result = runner.invoke(
+            app, ["automation", "history", "daily_update", "--ticks"]
+        )
+
         assert result.exit_code == 0
         assert "Showing 2 ticks" in result.output
         assert "SUCCESS" in result.output
@@ -228,7 +230,7 @@ class TestAutomationHistory:
         mock_instance.get_automation_runs.return_value = []
 
         result = runner.invoke(app, ["automation", "history", "new_automation"])
-        
+
         assert result.exit_code == 0
         assert "No runs found for automation 'new_automation'" in result.output
 
@@ -240,9 +242,11 @@ class TestAutomationHistory:
         result = runner.invoke(
             app, ["automation", "history", "test_automation", "--ticks", "--limit", "5"]
         )
-        
+
         assert result.exit_code == 0
-        mock_instance.get_automation_ticks.assert_called_with("test_automation", limit=5)
+        mock_instance.get_automation_ticks.assert_called_with(
+            "test_automation", limit=5
+        )
 
     def test_history_error(self, mock_client):
         """Test error handling in history command."""
@@ -250,6 +254,6 @@ class TestAutomationHistory:
         mock_instance.get_automation_runs.side_effect = APIError("Failed to fetch runs")
 
         result = runner.invoke(app, ["automation", "history", "test_automation"])
-        
+
         assert result.exit_code == 1
         assert "Failed to get automation history" in result.output

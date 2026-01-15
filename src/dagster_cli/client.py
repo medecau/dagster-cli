@@ -852,17 +852,17 @@ class DagsterClient:
                         last_run_timestamp = None
                         tick_status = None
                         tick_run_count = 0
-                        
+
                         if schedule.get("scheduleState", {}).get("ticks"):
                             tick = schedule["scheduleState"]["ticks"][0]
                             last_tick = tick.get("timestamp")
                             tick_status = tick.get("status", "SKIPPED")
-                            
+
                             # Get status and timestamp of the last run if any
                             runs = tick.get("runs", [])
                             run_ids = tick.get("runIds", [])
                             tick_run_count = len(run_ids)
-                            
+
                             if runs:
                                 # Use the status and time of the first (most recent) run
                                 last_run_status = runs[0].get("status", "UNKNOWN")
@@ -874,24 +874,27 @@ class DagsterClient:
                                 # If the tick was skipped, show that
                                 last_run_status = "SKIPPED"
 
-                        automations.append({
-                            "name": schedule["name"],
-                            "type": "Schedule",
-                            "target": schedule.get("pipelineName", ""),
-                            "description": schedule.get("description", ""),
-                            "status": (
-                                schedule.get("scheduleState", {})
-                                .get("status", "STOPPED")
-                            ),
-                            "cron_schedule": schedule.get("cronSchedule", ""),
-                            "last_tick": last_tick,
-                            "last_run_status": last_run_status,
-                            "last_run_timestamp": last_run_timestamp,
-                            "tick_status": tick_status,
-                            "tick_run_count": tick_run_count,
-                            "location": location_name,
-                            "repository": repo_name,
-                        })
+                        automations.append(
+                            {
+                                "name": schedule["name"],
+                                "type": "Schedule",
+                                "target": schedule.get("pipelineName", ""),
+                                "description": schedule.get("description", ""),
+                                "status": (
+                                    schedule.get("scheduleState", {}).get(
+                                        "status", "STOPPED"
+                                    )
+                                ),
+                                "cron_schedule": schedule.get("cronSchedule", ""),
+                                "last_tick": last_tick,
+                                "last_run_status": last_run_status,
+                                "last_run_timestamp": last_run_timestamp,
+                                "tick_status": tick_status,
+                                "tick_run_count": tick_run_count,
+                                "location": location_name,
+                                "repository": repo_name,
+                            }
+                        )
 
                     # Add sensors
                     for sensor in repo.get("sensors", []):
@@ -900,17 +903,17 @@ class DagsterClient:
                         last_run_timestamp = None
                         tick_status = None
                         tick_run_count = 0
-                        
+
                         if sensor.get("sensorState", {}).get("ticks"):
                             tick = sensor["sensorState"]["ticks"][0]
                             last_tick = tick.get("timestamp")
                             tick_status = tick.get("status", "SKIPPED")
-                            
+
                             # Get status and timestamp of the last run if any
                             runs = tick.get("runs", [])
                             run_ids = tick.get("runIds", [])
                             tick_run_count = len(run_ids)
-                            
+
                             if runs:
                                 # Use the status and time of the first (most recent) run
                                 last_run_status = runs[0].get("status", "UNKNOWN")
@@ -926,24 +929,27 @@ class DagsterClient:
                         targets = sensor.get("targets", [])
                         target = targets[0].get("pipelineName", "") if targets else ""
 
-                        automations.append({
-                            "name": sensor["name"],
-                            "type": "Sensor",
-                            "target": target,
-                            "description": sensor.get("description", ""),
-                            "status": (
-                                sensor.get("sensorState", {})
-                                .get("status", "STOPPED")
-                            ),
-                            "cron_schedule": None,  # Sensors don't have cron schedules
-                            "last_tick": last_tick,
-                            "last_run_status": last_run_status,
-                            "last_run_timestamp": last_run_timestamp,
-                            "tick_status": tick_status,
-                            "tick_run_count": tick_run_count,
-                            "location": location_name,
-                            "repository": repo_name,
-                        })
+                        automations.append(
+                            {
+                                "name": sensor["name"],
+                                "type": "Sensor",
+                                "target": target,
+                                "description": sensor.get("description", ""),
+                                "status": (
+                                    sensor.get("sensorState", {}).get(
+                                        "status", "STOPPED"
+                                    )
+                                ),
+                                "cron_schedule": None,  # Sensors don't have cron schedules
+                                "last_tick": last_tick,
+                                "last_run_status": last_run_status,
+                                "last_run_timestamp": last_run_timestamp,
+                                "tick_status": tick_status,
+                                "tick_run_count": tick_run_count,
+                                "location": location_name,
+                                "repository": repo_name,
+                            }
+                        )
 
             # Sort automations by name
             return sorted(automations, key=lambda x: x["name"])
@@ -993,7 +999,7 @@ class DagsterClient:
             """)
 
             result = self.gql_client.execute(schedule_query)
-            
+
             if "repositoriesOrError" in result:
                 repositories = result["repositoriesOrError"].get("nodes", [])
                 for repo in repositories:
@@ -1009,12 +1015,12 @@ class DagsterClient:
                                     schedule.get("executionTimezone", "")
                                 ),
                                 "status": (
-                                    schedule.get("scheduleState", {})
-                                    .get("status", "STOPPED")
+                                    schedule.get("scheduleState", {}).get(
+                                        "status", "STOPPED"
+                                    )
                                 ),
                                 "recent_ticks": (
-                                    schedule.get("scheduleState", {})
-                                    .get("ticks", [])
+                                    schedule.get("scheduleState", {}).get("ticks", [])
                                 ),
                                 "location": repo.get("location", {}).get("name", ""),
                                 "repository": repo.get("name", ""),
@@ -1061,7 +1067,7 @@ class DagsterClient:
             """)
 
             result = self.gql_client.execute(sensor_query)
-            
+
             if "repositoriesOrError" in result:
                 repositories = result["repositoriesOrError"].get("nodes", [])
                 for repo in repositories:
@@ -1069,10 +1075,9 @@ class DagsterClient:
                         if sensor["name"] == name:
                             targets = sensor.get("targets", [])
                             target = (
-                                targets[0].get("pipelineName", "")
-                                if targets else ""
+                                targets[0].get("pipelineName", "") if targets else ""
                             )
-                            
+
                             return {
                                 "name": sensor["name"],
                                 "type": "Sensor",
@@ -1082,12 +1087,12 @@ class DagsterClient:
                                     sensor.get("minIntervalSeconds")
                                 ),
                                 "status": (
-                                    sensor.get("sensorState", {})
-                                    .get("status", "STOPPED")
+                                    sensor.get("sensorState", {}).get(
+                                        "status", "STOPPED"
+                                    )
                                 ),
                                 "recent_ticks": (
-                                    sensor.get("sensorState", {})
-                                    .get("ticks", [])
+                                    sensor.get("sensorState", {}).get("ticks", [])
                                 ),
                                 "location": repo.get("location", {}).get("name", ""),
                                 "repository": repo.get("name", ""),
@@ -1113,12 +1118,14 @@ class DagsterClient:
                 if tick_runs:
                     # Add basic run info from tick data
                     for run in tick_runs:
-                        all_runs.append({
-                            "id": run["id"],
-                            "status": run["status"],
-                            "pipeline": {"name": automation["target"]},
-                            # We'll need to fetch full details for timestamps
-                        })
+                        all_runs.append(
+                            {
+                                "id": run["id"],
+                                "status": run["status"],
+                                "pipeline": {"name": automation["target"]},
+                                # We'll need to fetch full details for timestamps
+                            }
+                        )
                 elif tick.get("runIds"):
                     # Fallback: if we only have run IDs, fetch full details
                     for run_id in tick.get("runIds", []):
@@ -1150,16 +1157,19 @@ class DagsterClient:
 
             ticks = []
             for tick in automation.get("recent_ticks", [])[:limit]:
-                ticks.append({
-                    "timestamp": tick.get("timestamp"),
-                    "status": tick.get("status", "SKIPPED"),
-                    "run_count": len(tick.get("runIds", [])),
-                    "run_ids": tick.get("runIds", []),
-                    "error": (
-                        tick.get("error", {}).get("message")
-                        if tick.get("error") else None
-                    ),
-                })
+                ticks.append(
+                    {
+                        "timestamp": tick.get("timestamp"),
+                        "status": tick.get("status", "SKIPPED"),
+                        "run_count": len(tick.get("runIds", [])),
+                        "run_ids": tick.get("runIds", []),
+                        "error": (
+                            tick.get("error", {}).get("message")
+                            if tick.get("error")
+                            else None
+                        ),
+                    }
+                )
 
             return ticks
         except Exception as e:

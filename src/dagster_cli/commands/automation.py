@@ -15,8 +15,7 @@ from dagster_cli.utils.output import (
 )
 
 app = typer.Typer(
-    help="Automation management (schedules and sensors)",
-    no_args_is_help=True
+    help="Automation management (schedules and sensors)", no_args_is_help=True
 )
 
 
@@ -45,6 +44,7 @@ def list_automations(
         else:
             print_info(f"Found {len(automations)} automations")
             from dagster_cli.utils.output import print_automations_table
+
             print_automations_table(automations)
 
     except Exception as e:
@@ -77,6 +77,7 @@ def view(
             console.print_json(data=automation)
         else:
             from dagster_cli.utils.output import print_automation_details
+
             print_automation_details(automation)
 
     except Exception as e:
@@ -115,6 +116,7 @@ def history(
             else:
                 print_info(f"Showing {len(ticks_data)} ticks for '{name}'")
                 from dagster_cli.utils.output import print_automation_ticks_table
+
                 print_automation_ticks_table(ticks_data)
         else:
             # Default: show runs

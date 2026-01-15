@@ -198,13 +198,13 @@ def print_automations_table(automations: List[Dict[str, Any]]) -> None:
         name = automation["name"]
         target = automation["target"]
         status = automation.get("status", "STOPPED")
-        
+
         # Format type - show cron schedule for schedules, "Sensor" for sensors
         if automation["type"] == "Schedule":
             type_display = automation.get("cron_schedule", "Schedule")
         else:
             type_display = "Sensor"
-        
+
         # Color code status
         if status == "RUNNING":
             status_display = f"[green]{status}[/green]"
@@ -216,20 +216,22 @@ def print_automations_table(automations: List[Dict[str, Any]]) -> None:
         # Format last tick - show run count or failure
         tick_status = automation.get("tick_status")
         tick_run_count = automation.get("tick_run_count", 0)
-        
+
         if not automation.get("last_tick"):
             last_tick_display = "—"
         elif tick_status == "FAILURE":
             last_tick_display = "[red]FAILURE[/red]"
         elif tick_run_count > 0:
-            last_tick_display = f"{tick_run_count} run{'s' if tick_run_count != 1 else ''}"
+            last_tick_display = (
+                f"{tick_run_count} run{'s' if tick_run_count != 1 else ''}"
+            )
         else:
             last_tick_display = "[dim]SKIPPED[/dim]"
-        
+
         # Format last run - show colored timestamp based on status
         last_run_status = automation.get("last_run_status", "—")
         last_run_timestamp = automation.get("last_run_timestamp")
-        
+
         if last_run_timestamp:
             formatted_time = DagsterClient.format_timestamp(last_run_timestamp)
             if last_run_status == "SUCCESS":
@@ -241,7 +243,14 @@ def print_automations_table(automations: List[Dict[str, Any]]) -> None:
         else:
             last_run_display = "—"
 
-        table.add_row(name, type_display, target, status_display, last_tick_display, last_run_display)
+        table.add_row(
+            name,
+            type_display,
+            target,
+            status_display,
+            last_tick_display,
+            last_run_display,
+        )
 
     console.print(table)
 
@@ -252,7 +261,7 @@ def print_automation_details(automation: Dict[str, Any]) -> None:
     auto_type = automation["type"]
     target = automation["target"]
     status = automation.get("status", "STOPPED")
-    
+
     # Color code status
     if status == "RUNNING":
         status_display = f"[green]{status} ✓[/green]"
@@ -266,28 +275,32 @@ def print_automation_details(automation: Dict[str, Any]) -> None:
 [cyan]Type:[/cyan]        {auto_type}
 [cyan]Target:[/cyan]      {target}
 [cyan]Status:[/cyan]      {status_display}
-[cyan]Location:[/cyan]    {automation.get('location', 'Unknown')}
-[cyan]Repository:[/cyan]  {automation.get('repository', 'Unknown')}"""
+[cyan]Location:[/cyan]    {automation.get("location", "Unknown")}
+[cyan]Repository:[/cyan]  {automation.get("repository", "Unknown")}"""
 
     if auto_type == "Schedule":
-        content += f"\n[cyan]Schedule:[/cyan]    {automation.get('cron_schedule', 'N/A')}"
-        if automation.get('execution_timezone'):
+        content += (
+            f"\n[cyan]Schedule:[/cyan]    {automation.get('cron_schedule', 'N/A')}"
+        )
+        if automation.get("execution_timezone"):
             content += f"\n[cyan]Timezone:[/cyan]    {automation['execution_timezone']}"
     elif auto_type == "Sensor":
-        if automation.get('min_interval_seconds'):
-            content += f"\n[cyan]Min Interval:[/cyan] {automation['min_interval_seconds']}s"
+        if automation.get("min_interval_seconds"):
+            content += (
+                f"\n[cyan]Min Interval:[/cyan] {automation['min_interval_seconds']}s"
+            )
 
-    if automation.get('description'):
+    if automation.get("description"):
         content += f"\n[cyan]Description:[/cyan] {automation['description']}"
 
     # Add recent tick summary
-    recent_ticks = automation.get('recent_ticks', [])
+    recent_ticks = automation.get("recent_ticks", [])
     if recent_ticks:
-        success_count = sum(1 for t in recent_ticks if t.get('status') == 'SUCCESS')
-        failure_count = sum(1 for t in recent_ticks if t.get('status') == 'FAILURE')
-        skip_count = sum(1 for t in recent_ticks if t.get('status') == 'SKIPPED')
-        
-        content += f"\n\n[cyan]Recent Activity:[/cyan]"
+        success_count = sum(1 for t in recent_ticks if t.get("status") == "SUCCESS")
+        failure_count = sum(1 for t in recent_ticks if t.get("status") == "FAILURE")
+        skip_count = sum(1 for t in recent_ticks if t.get("status") == "SKIPPED")
+
+        content += "\n\n[cyan]Recent Activity:[/cyan]"
         content += f"\n  Last {len(recent_ticks)} ticks: {success_count} success, {failure_count} failed, {skip_count} skipped"
 
     panel = Panel(content, title=f"{auto_type} Details", box=box.ROUNDED)
@@ -306,7 +319,7 @@ def print_automation_ticks_table(ticks: List[Dict[str, Any]]) -> None:
     for tick in ticks:
         timestamp = DagsterClient.format_timestamp(tick.get("timestamp"))
         status = tick.get("status", "SKIPPED")
-        
+
         # Color code status
         if status == "SUCCESS":
             status_display = f"[green]{status}[/green]"
@@ -318,7 +331,9 @@ def print_automation_ticks_table(ticks: List[Dict[str, Any]]) -> None:
             status_display = status
 
         run_count = tick.get("run_count", 0)
-        run_display = f"{run_count} run{'s' if run_count != 1 else ''}" if run_count > 0 else "—"
+        run_display = (
+            f"{run_count} run{'s' if run_count != 1 else ''}" if run_count > 0 else "—"
+        )
 
         error = tick.get("error", "")
         if error and len(error) > 50:
