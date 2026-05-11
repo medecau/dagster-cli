@@ -2,6 +2,7 @@
 
 from datetime import datetime
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
 
 from dagster_graphql import DagsterGraphQLClient, DagsterGraphQLClientError
 from gql import Client, gql
@@ -10,6 +11,26 @@ from gql.transport.requests import RequestsHTTPTransport
 from dagster_cli.config import Config
 from dagster_cli.constants import DATETIME_FORMAT, DEFAULT_TIMEOUT
 from dagster_cli.utils.errors import APIError, AuthenticationError
+
+
+def _split_url_for_dagster_client(url: str) -> tuple[str, bool]:
+    """Split a Dagster URL into the (hostname, use_https) pair expected by
+    ``DagsterGraphQLClient``.
+
+    ``DagsterGraphQLClient.__init__`` accepts ``hostname`` (e.g.
+    ``YOUR_ORG.dagster.cloud``) plus a ``use_https`` flag, and internally
+    appends ``/graphql``. Passing a full URL such as
+    ``https://YOUR_ORG.dagster.cloud/prod`` as ``hostname`` produces the broken
+    request URL ``http://https://YOUR_ORG.dagster.cloud/prod/graphql``.
+
+    This helper accepts either a full URL or a bare hostname (with optional
+    deployment path) and returns the form ``DagsterGraphQLClient`` actually
+    needs.
+    """
+    parsed = urlparse(url if "://" in url else f"https://{url}")
+    host_with_path = (parsed.netloc + parsed.path).rstrip("/")
+    use_https = parsed.scheme != "http"
+    return host_with_path, use_https
 
 
 class DagsterClient:
@@ -38,8 +59,10 @@ class DagsterClient:
         if self._dagster_client is None:
             try:
                 url = self._get_deployment_url()
+                hostname, use_https = _split_url_for_dagster_client(url)
                 self._dagster_client = DagsterGraphQLClient(
-                    url,
+                    hostname,
+                    use_https=use_https,
                     headers={"Dagster-Cloud-Api-Token": self.profile["token"]},
                 )
             except Exception as e:
@@ -488,21 +511,25 @@ class DagsterClient:
     ) -> str:
         """Trigger materialization of an asset."""
         try:
-            # First, find which job can materialize this asset
-            # For now, we'll use the __ASSET_JOB which is the default asset job
+            # Use __ASSET_JOB (the default asset job) plus an explicit
+            # asset_selection — the asset key belongs on the execution-params
+            # selector, not in runConfigData.
             job_name = "__ASSET_JOB"
 
-            # Build run config for asset selection
-            run_config = {"selection": [asset_key]}
+            # Asset keys with slashes are multi-component paths
+            # (e.g. "staging/stg_x" -> ["staging", "stg_x"]).
+            asset_key_path = asset_key.split("/") if "/" in asset_key else asset_key
 
+            tags = None
             if partition_key:
-                run_config["partitionKey"] = partition_key
+                tags = {"dagster/partition": partition_key}
 
             return self.dagster_client.submit_job_execution(
                 job_name,
                 repository_location_name=self.profile.get("location"),
                 repository_name=self.profile.get("repository"),
-                run_config=run_config,
+                asset_selection=[asset_key_path],
+                tags=tags,
             )
         except DagsterGraphQLClientError as e:
             raise APIError(f"Failed to materialize asset: {e}") from e
