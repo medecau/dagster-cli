@@ -1,8 +1,10 @@
 """Run-related commands for Dagster CLI."""
 
+import contextlib
 from pathlib import Path
 
 import typer
+from rich.panel import Panel
 
 from dagster_cli.client import DagsterClient
 from dagster_cli.constants import (
@@ -11,6 +13,7 @@ from dagster_cli.constants import (
     DEPLOYMENT_OPTION_NAME,
     DEPLOYMENT_OPTION_SHORT,
 )
+from dagster_cli.utils.format import format_timestamp
 from dagster_cli.utils.output import (
     console,
     create_spinner,
@@ -137,8 +140,7 @@ def list_runs(
     try:
         client = DagsterClient(profile, deployment)
 
-        with create_spinner("Fetching runs...") as progress:
-            task = progress.add_task("Fetching runs...", total=None)
+        with create_spinner("Fetching runs...") as (progress, task):
             runs = client.get_recent_runs(limit=limit, status=status)
             progress.remove_task(task)
 
@@ -162,7 +164,10 @@ def list_runs(
 
 @app.command()
 def view(
-    run_id: str = typer.Argument(..., help="Run ID to view (can be partial)"),
+    run_id: str = typer.Argument(
+        ...,
+        help="Run ID to view (can be partial, or 'latest', 'last-failure')",
+    ),
     profile: str | None = typer.Option(
         None,
         "--profile",
@@ -176,14 +181,21 @@ def view(
         help=DEPLOYMENT_OPTION_HELP,
     ),
     json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
+    no_errors: bool = typer.Option(
+        False,
+        "--no-errors",
+        help="Skip inline error details for failed runs",
+    ),
 ):
-    """View run details."""
+    """View run details.
+
+    For failed runs, automatically shows the most recent error events inline.
+    Use --no-errors to suppress this behaviour.
+    """
     try:
         client = DagsterClient(profile, deployment)
 
-        # Resolve partial run ID if needed
-        with create_spinner("Finding run...") as progress:
-            task = progress.add_task("Finding run...", total=None)
+        with create_spinner("Finding run...") as (progress, task):
             full_run_id, error_msg, matching_runs = resolve_run_id(client, run_id)
             progress.remove_task(task)
 
@@ -194,8 +206,7 @@ def view(
                     print_info(f"  - {r['id'][:16]}... ({r['pipeline']['name']})")
             raise typer.Exit(1)
 
-        with create_spinner("Fetching run details...") as progress:
-            task = progress.add_task("Fetching run details...", total=None)
+        with create_spinner("Fetching run details...") as (progress, task):
             run = client.get_run_status(full_run_id)
             progress.remove_task(task)
 
@@ -208,14 +219,68 @@ def view(
         else:
             print_run_details(run)
 
+            # Inline recent errors for failed runs
+            if run.get("status") == "FAILURE" and not no_errors:
+                _print_inline_errors(client, full_run_id)
+
     except Exception as e:
         print_error(f"Failed to view run: {str(e)}")
         raise typer.Exit(1) from e
 
 
+def _print_inline_errors(client: DagsterClient, run_id: str) -> None:
+    """Fetch and display error events inline, without aborting if logs fail."""
+    with contextlib.suppress(Exception):  # never mask the run details above
+        logs_data = client.get_run_logs(run_id, limit=200)
+        error_events = [
+            e
+            for e in logs_data.get("events", [])
+            if e.get("__typename") in ["ExecutionStepFailureEvent", "RunFailureEvent"]
+        ]
+        if not error_events:
+            return
+
+        lines = []
+        for event in error_events:
+            event_type = event.get("__typename", "").replace("Event", "")
+            step = event.get("stepKey")
+            msg = event.get("message", "")
+            header = f"[bold red]{event_type}[/bold red]"
+            if step:
+                header += f" [dim](step: {step})[/dim]"
+            lines.append(header)
+            if msg:
+                lines.append(msg)
+            if err := event.get("error", {}):
+                if err.get("message"):
+                    lines.append(f"[red]{err['message']}[/red]")
+                if err.get("stack"):
+                    stack = err["stack"]
+                    if isinstance(stack, list):
+                        stack = "\n".join(stack)
+                    lines.append(f"[dim]{stack}[/dim]")
+            lines.append("")
+
+        console.print(
+            Panel(
+                "\n".join(lines).rstrip(),
+                title="Recent Errors",
+                border_style="red",
+                expand=False,
+            )
+        )
+        print_info(
+            "Use 'dgc run logs --errors-only' for full details. "
+            "Pass --no-errors to suppress this panel."
+        )
+
+
 @app.command()
 def cancel(
-    run_id: str = typer.Argument(..., help="Run ID to cancel (can be partial)"),
+    run_id: str = typer.Argument(
+        ...,
+        help="Run ID to cancel (can be partial, or 'latest')",
+    ),
     profile: str | None = typer.Option(
         None,
         "--profile",
@@ -228,16 +293,48 @@ def cancel(
         DEPLOYMENT_OPTION_SHORT,
         help=DEPLOYMENT_OPTION_HELP,
     ),
-    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt"),
+    yes: bool = typer.Option(
+        False,
+        "--yes",
+        "-y",
+        help="Skip confirmation prompt",
+        envvar="DGC_ASSUME_YES",
+    ),
 ):
     """Cancel a running job."""
-    print_warning("Run cancellation is not yet implemented in the GraphQL client")
-    print_info("This feature will be added in a future version")
-    raise typer.Exit(1)
+    try:
+        client = DagsterClient(profile, deployment)
+
+        with create_spinner("Finding run...") as (progress, task):
+            full_run_id, error_msg, matching_runs = resolve_run_id(client, run_id)
+            progress.remove_task(task)
+
+        if error_msg:
+            print_error(error_msg)
+            if matching_runs:
+                for r in matching_runs:
+                    print_info(f"  - {r['id'][:16]}... ({r['pipeline']['name']})")
+            raise typer.Exit(1)
+
+        if not yes and not typer.confirm(f"Cancel run {full_run_id[:8]}...?"):
+            print_warning("Cancelled")
+            return
+
+        with create_spinner("Cancelling run...") as (progress, task):
+            client.cancel_run(full_run_id)
+            progress.remove_task(task)
+
+        from dagster_cli.utils.output import print_success
+
+        print_success(f"Run {full_run_id[:8]}... cancelled")
+
+    except Exception as e:
+        print_error(f"Failed to cancel run: {str(e)}")
+        raise typer.Exit(1) from e
 
 
 @app.command()
-def logs(
+def logs(  # noqa: C901
     run_id: str = typer.Argument(..., help="Run ID to view logs (can be partial)"),
     profile: str | None = typer.Option(
         None,
@@ -301,15 +398,13 @@ def logs(
       dgc run logs <run-id> --errors-only    # Show only errors and critical
     """
     import requests
-    from rich.panel import Panel
     from rich.table import Table
 
     try:
         client = DagsterClient(profile, deployment)
 
         # Resolve partial run ID if needed
-        with create_spinner("Finding run...") as progress:
-            task = progress.add_task("Finding run...", total=None)
+        with create_spinner("Finding run...") as (progress, task):
             full_run_id, error_msg, matching_runs = resolve_run_id(client, run_id)
             progress.remove_task(task)
 
@@ -338,8 +433,7 @@ def logs(
 
         # Get compute logs if requested
         if stdout or stderr:
-            with create_spinner("Fetching compute log URLs...") as progress:
-                task = progress.add_task("Fetching compute log URLs...", total=None)
+            with create_spinner("Fetching compute log URLs...") as (progress, task):
                 log_urls = client.get_compute_log_urls(full_run_id)
                 progress.remove_task(task)
 
@@ -355,11 +449,7 @@ def logs(
             # Download log content
             with create_spinner(
                 f"Downloading {'stdout' if stdout else 'stderr'}...",
-            ) as progress:
-                task = progress.add_task(
-                    f"Downloading {'stdout' if stdout else 'stderr'}...",
-                    total=None,
-                )
+            ) as (progress, task):
                 response = requests.get(url, timeout=30)
                 response.raise_for_status()
                 log_content = response.text
@@ -396,9 +486,7 @@ def logs(
             total_fetched = 0
 
             # Paginate through all events
-            with create_spinner("Fetching event logs...") as progress:
-                task = progress.add_task("Fetching event logs...", total=None)
-
+            with create_spinner("Fetching event logs...") as (progress, task):
                 while has_more:
                     # Fetch next page
                     logs_data = client.get_run_logs(
@@ -492,7 +580,7 @@ def logs(
                 stack_traces = []
 
                 for event in events_to_display:
-                    timestamp = client.format_timestamp(event.get("timestamp"))
+                    timestamp = format_timestamp(event.get("timestamp"))
                     level = event.get("level", "")
                     event_type = event.get("__typename", "").replace("Event", "")
                     message = event.get("message", "")

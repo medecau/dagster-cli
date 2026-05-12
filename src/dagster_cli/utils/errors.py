@@ -17,5 +17,9 @@ class APIError(DagsterCLIError):
     """API communication errors."""
 
 
+class NotFoundError(APIError):
+    """Resource not found — raised by explicit-lookup methods (not list endpoints)."""
+
+
 class ValidationError(DagsterCLIError):
     """Input validation errors."""

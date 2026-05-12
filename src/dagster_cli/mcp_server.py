@@ -1,7 +1,9 @@
 """MCP server implementation for Dagster CLI."""
 
-from typing import Optional
+import functools
+from typing import Any, cast
 
+import requests
 from mcp.server.fastmcp import FastMCP
 
 from dagster_cli.client import DagsterClient
@@ -34,160 +36,168 @@ EVENT_TYPE_LEVELS = {
 }
 
 
-def should_include_event(event, min_level):
-    """Check if an event should be included based on the minimum log level."""
+def should_include_event(event: dict, min_level: str | None) -> bool:
+    """Return True if *event* meets the *min_level* threshold."""
     if not min_level:
         return True
-
-    # Get the event's level
-    event_level = event.get("level")
-
-    # If no level field, check event type mapping
-    if not event_level:
-        event_type = event.get("__typename")
-        event_level = EVENT_TYPE_LEVELS.get(event_type)
-
-    # If still no level, include it
+    event_level = event.get("level") or EVENT_TYPE_LEVELS.get(
+        event.get("__typename", "")
+    )
     if not event_level or min_level not in LEVEL_HIERARCHY:
         return True
-
-    # Compare levels
     return LEVEL_HIERARCHY.get(event_level, -1) >= LEVEL_HIERARCHY.get(min_level, 0)
 
 
-def create_mcp_server(profile_name: str | None) -> FastMCP:
-    """Create MCP server with Dagster+ tools and resources."""
+def mcp_error(error_type: str, error: str, **extra: Any) -> dict:
+    """Build a standard error response envelope for MCP tools."""
+    return {"status": "error", "error_type": error_type, "error": error, **extra}
+
+
+def _resolve_run_id_or_error(
+    client: DagsterClient, run_id: str
+) -> tuple[str | None, dict | None]:
+    """Resolve a partial run ID, returning (full_id, None) or (None, error_dict)."""
+    full_run_id, error_msg, matching_runs = resolve_run_id(client, run_id)
+    if not error_msg:
+        return full_run_id, None
+    if matching_runs:
+        return None, mcp_error(
+            "Ambiguous",
+            error_msg,
+            matches=[
+                {"id": r["id"], "job": r["pipeline"]["name"]} for r in matching_runs
+            ],
+        )
+    return None, mcp_error("NotFound", error_msg)
+
+
+def _fetch_compute_log(client: DagsterClient, run_id: str, log_type: str) -> dict:
+    """Fetch stdout or stderr content for a run. Returns a result dict."""
+    log_urls = client.get_compute_log_urls(run_id)
+    url = log_urls.get(f"{log_type}_url")
+    if not url:
+        return {
+            "available": False,
+            "note": f"{log_type} logs not available (may require Dagster+)",
+        }
+    try:
+        response = requests.get(url, timeout=30)
+        response.raise_for_status()
+        content = response.text.strip()
+        return {"available": True, "content": content}
+    except requests.RequestException as e:
+        return {"available": False, "error": str(e)}
+
+
+def _mcp_tool(fn):
+    """Decorator that wraps an async MCP tool with standard error handling."""
+
+    @functools.wraps(fn)
+    async def wrapper(*args, **kwargs):
+        try:
+            return await fn(*args, **kwargs)
+        except DagsterCLIError as e:
+            return mcp_error(type(e).__name__, str(e))
+        except Exception as e:
+            return mcp_error("UnknownError", str(e))
+
+    return wrapper
+
+
+def create_mcp_server(profile_name: str | None) -> FastMCP:  # noqa: C901
+    """Create MCP server with Dagster+ tools."""
     mcp = FastMCP("dagster-cli")
 
-    # Tool: List jobs
     @mcp.tool()
+    @_mcp_tool
     async def list_jobs(
         location: str | None = None,
         deployment: str | None = None,
     ) -> dict:
         """List available Dagster jobs.
 
+        Use this tool to discover what jobs exist in the deployment before running
+        one. Filter by ``location`` when the deployment has multiple code locations.
+
         Args:
-            location: Optional filter by repository location
-            deployment: Optional deployment name (defaults to prod)
+            location: Optional filter by repository location name.
+            deployment: Dagster+ deployment name (default: prod). Use
+                ``dgc deployment list`` to see valid names.
 
         Returns:
-            List of jobs with their details
+            ``{status, count, jobs}`` — jobs include name, description, location,
+            and repository fields.
         """
-        try:
-            client = DagsterClient(profile_name, deployment)
-            jobs = client.list_jobs(location)
-            return {"status": "success", "count": len(jobs), "jobs": jobs}
-        except DagsterCLIError as e:
-            return {"status": "error", "error_type": type(e).__name__, "error": str(e)}
-        except Exception as e:
-            return {"status": "error", "error_type": "UnknownError", "error": str(e)}
+        client = DagsterClient(profile_name, deployment)
+        jobs = client.list_jobs(location)
+        return {"status": "success", "count": len(jobs), "jobs": jobs}
 
-    # Tool: Run a job
     @mcp.tool()
+    @_mcp_tool
     async def run_job(
         job_name: str,
-        config: dict | None = None,
-        location: str | None = None,
-        repository: str | None = None,
+        run_config: dict | None = None,
+        repository_location_name: str | None = None,
+        repository_name: str | None = None,
         deployment: str | None = None,
     ) -> dict:
-        """Submit a job for execution.
+        """Submit a Dagster job for execution.
+
+        This triggers an *asynchronous* run — it returns immediately with a run
+        ID. Use ``get_run_status`` to poll for completion.
 
         Args:
-            job_name: Name of the job to run
-            config: Optional run configuration
-            location: Optional repository location (overrides profile default)
-            repository: Optional repository name (overrides profile default)
-            deployment: Optional deployment name (defaults to prod)
+            job_name: Exact name of the job (from ``list_jobs``).
+            run_config: Optional run configuration dict (YAML-equivalent).
+            repository_location_name: Code location name (overrides profile default).
+            repository_name: Repository name (overrides profile default).
+            deployment: Dagster+ deployment name (default: prod).
 
         Returns:
-            Run ID and URL for the submitted job
+            ``{status, run_id, url, message}``
         """
-        try:
-            client = DagsterClient(profile_name, deployment)
-            run_id = client.submit_job_run(
-                job_name=job_name,
-                run_config=config,
-                repository_location_name=location,
-                repository_name=repository,
-            )
+        client = DagsterClient(profile_name, deployment)
+        run_id = client.submit_job_run(
+            job_name=job_name,
+            run_config=run_config,
+            repository_location_name=repository_location_name,
+            repository_name=repository_name,
+        )
+        return {
+            "status": "success",
+            "run_id": run_id,
+            "url": client.run_url(run_id),
+            "message": f"Job '{job_name}' submitted successfully",
+        }
 
-            # Construct URL if possible
-            base_url = client.profile.get("url", "")
-            if base_url:
-                # Apply deployment to URL
-                url = base_url
-                if client.deployment and client.deployment != "prod":
-                    url = url.replace("/prod", f"/{client.deployment}")
-                if not url.startswith("http"):
-                    url = f"https://{url}"
-                run_url = f"{url}/runs/{run_id}"
-            else:
-                run_url = None
-
-            return {
-                "status": "success",
-                "run_id": run_id,
-                "url": run_url,
-                "message": f"Job '{job_name}' submitted successfully",
-            }
-        except DagsterCLIError as e:
-            return {"status": "error", "error_type": type(e).__name__, "error": str(e)}
-        except Exception as e:
-            return {"status": "error", "error_type": "UnknownError", "error": str(e)}
-
-    # Tool: Get run status
     @mcp.tool()
+    @_mcp_tool
     async def get_run_status(run_id: str, deployment: str | None = None) -> dict:
-        """Get the status of a specific run.
+        """Get the status and timing of a specific run.
+
+        Accepts full or partial run IDs, and the special aliases
+        ``latest`` (most recent run) and ``last-failure`` (most recent failed run).
 
         Args:
-            run_id: Run ID to check (can be partial)
-            deployment: Optional deployment name (defaults to prod)
+            run_id: Full or partial run ID, ``latest``, or ``last-failure``.
+            deployment: Dagster+ deployment name (default: prod).
 
         Returns:
-            Run details including status, timing, and stats
+            ``{status, run}`` — run includes id, status, startTime, endTime, stats.
+            Status values: SUCCESS, FAILURE, STARTED, QUEUED, CANCELED, CANCELING.
         """
-        try:
-            client = DagsterClient(profile_name, deployment)
-            # Resolve partial run ID if needed
-            full_run_id, error_msg, matching_runs = resolve_run_id(client, run_id)
+        client = DagsterClient(profile_name, deployment)
+        full_run_id, err = _resolve_run_id_or_error(client, run_id)
+        if err:
+            return err
+        full_run_id = cast("str", full_run_id)
+        run = client.get_run_status(full_run_id)
+        if not run:
+            return mcp_error("NotFound", f"Run '{run_id}' not found")
+        return {"status": "success", "run": run}
 
-            if error_msg:
-                if matching_runs:
-                    return {
-                        "status": "error",
-                        "error_type": "Ambiguous",
-                        "error": error_msg,
-                        "matches": [
-                            {"id": r["id"], "job": r["pipeline"]["name"]}
-                            for r in matching_runs
-                        ],
-                    }
-                return {
-                    "status": "error",
-                    "error_type": "NotFound",
-                    "error": error_msg,
-                }
-
-            run = client.get_run_status(full_run_id)
-
-            if not run:
-                return {
-                    "status": "error",
-                    "error_type": "NotFound",
-                    "error": f"Run '{run_id}' not found",
-                }
-
-            return {"status": "success", "run": run}
-        except DagsterCLIError as e:
-            return {"status": "error", "error_type": type(e).__name__, "error": str(e)}
-        except Exception as e:
-            return {"status": "error", "error_type": "UnknownError", "error": str(e)}
-
-    # Tool: List recent runs
     @mcp.tool()
+    @_mcp_tool
     async def list_runs(
         limit: int = 10,
         status: str | None = None,
@@ -196,52 +206,49 @@ def create_mcp_server(profile_name: str | None) -> FastMCP:
         """Get recent run history.
 
         Args:
-            limit: Number of runs to return (default: 10)
-            status: Optional filter by status (SUCCESS, FAILURE, STARTED, etc.)
-            deployment: Optional deployment name (defaults to prod)
+            limit: Number of runs to return (default: 10, max practical: 50).
+            status: Filter by run status. One of: SUCCESS, FAILURE, STARTED,
+                QUEUED, CANCELED, CANCELING.
+            deployment: Dagster+ deployment name (default: prod).
 
         Returns:
-            List of recent runs with their details
+            ``{status, count, runs}``
         """
-        try:
-            client = DagsterClient(profile_name, deployment)
-            runs = client.get_recent_runs(limit=limit, status=status)
-            return {"status": "success", "count": len(runs), "runs": runs}
-        except DagsterCLIError as e:
-            return {"status": "error", "error_type": type(e).__name__, "error": str(e)}
-        except Exception as e:
-            return {"status": "error", "error_type": "UnknownError", "error": str(e)}
+        client = DagsterClient(profile_name, deployment)
+        runs = client.get_recent_runs(limit=limit, status=status)
+        return {"status": "success", "count": len(runs), "runs": runs}
 
-    # Tool: List assets
     @mcp.tool()
+    @_mcp_tool
     async def list_assets(
         prefix: str | None = None,
         group: str | None = None,
         location: str | None = None,
         deployment: str | None = None,
     ) -> dict:
-        """List all assets in the deployment.
+        """List assets in the deployment.
 
         Args:
-            prefix: Filter assets by prefix
-            group: Filter by asset group
-            location: Filter by repository location
-            deployment: Optional deployment name (defaults to prod)
+            prefix: Filter assets whose key starts with this string
+                (e.g., ``"finance/"``).
+            group: Filter by asset group name.
+            location: Filter by code location name.
+            deployment: Dagster+ deployment name (default: prod).
 
         Returns:
-            List of assets with their details
-        """
-        try:
-            client = DagsterClient(profile_name, deployment)
-            assets = client.list_assets(prefix=prefix, group=group, location=location)
-            return {"status": "success", "count": len(assets), "assets": assets}
-        except DagsterCLIError as e:
-            return {"status": "error", "error_type": type(e).__name__, "error": str(e)}
-        except Exception as e:
-            return {"status": "error", "error_type": "UnknownError", "error": str(e)}
+            ``{status, count, assets}`` — each asset has key (list of path parts),
+            groupName, computeKind, location, repository.
 
-    # Tool: Materialize asset
+        Note:
+            Asset keys are represented as path lists (e.g., ``["finance", "revenue"]``).
+            Join with ``"/"`` to form the human-readable key used in materialize_asset.
+        """
+        client = DagsterClient(profile_name, deployment)
+        assets = client.list_assets(prefix=prefix, group=group, location=location)
+        return {"status": "success", "count": len(assets), "assets": assets}
+
     @mcp.tool()
+    @_mcp_tool
     async def materialize_asset(
         asset_key: str,
         partition_key: str | None = None,
@@ -249,79 +256,59 @@ def create_mcp_server(profile_name: str | None) -> FastMCP:
     ) -> dict:
         """Trigger materialization of an asset.
 
+        This submits an *asynchronous* run — it does NOT materialize synchronously.
+        Use ``get_run_status`` to poll for the result.
+
+        The asset must exist in the deployment and the profile must have
+        ``location`` and ``repository`` configured (or the deployment must have
+        exactly one code location).
+
         Args:
-            asset_key: Asset key to materialize (e.g., 'my_asset' or 'prefix/my_asset')
-            partition_key: Optional partition to materialize
-            deployment: Optional deployment name (defaults to prod)
+            asset_key: Slash-separated asset key (e.g., ``"finance/revenue"``
+                or ``"my_asset"``).
+            partition_key: Optional partition to materialize (e.g., ``"2024-01-01"``).
+            deployment: Dagster+ deployment name (default: prod).
 
         Returns:
-            Run ID and URL for the materialization
+            ``{status, run_id, url, message}``
         """
-        try:
-            client = DagsterClient(profile_name, deployment)
-            run_id = client.materialize_asset(
-                asset_key=asset_key,
-                partition_key=partition_key,
-            )
+        client = DagsterClient(profile_name, deployment)
+        run_id = client.materialize_asset(
+            asset_key=asset_key,
+            partition_key=partition_key,
+        )
+        return {
+            "status": "success",
+            "run_id": run_id,
+            "url": client.run_url(run_id),
+            "message": f"Asset '{asset_key}' materialization submitted",
+        }
 
-            # Construct URL if possible
-            base_url = client.profile.get("url", "")
-            if base_url:
-                # Apply deployment to URL
-                url = base_url
-                if client.deployment and client.deployment != "prod":
-                    url = url.replace("/prod", f"/{client.deployment}")
-                if not url.startswith("http"):
-                    url = f"https://{url}"
-                run_url = f"{url}/runs/{run_id}"
-            else:
-                run_url = None
-
-            return {
-                "status": "success",
-                "run_id": run_id,
-                "url": run_url,
-                "message": f"Asset '{asset_key}' materialization submitted",
-            }
-        except DagsterCLIError as e:
-            return {"status": "error", "error_type": type(e).__name__, "error": str(e)}
-        except Exception as e:
-            return {"status": "error", "error_type": "UnknownError", "error": str(e)}
-
-    # Tool: Reload repository
     @mcp.tool()
+    @_mcp_tool
     async def reload_repository(
         location_name: str,
         deployment: str | None = None,
     ) -> dict:
-        """Reload a repository location.
+        """Reload a repository location so new code definitions take effect.
 
         Args:
-            location_name: Name of the repository location to reload
-            deployment: Optional deployment name (defaults to prod)
+            location_name: Name of the code location to reload.
+            deployment: Dagster+ deployment name (default: prod).
 
         Returns:
-            Success status
+            ``{status, message}``
         """
-        try:
-            client = DagsterClient(profile_name, deployment)
-            success = client.reload_repository_location(location_name)
-            return {
-                "status": "success" if success else "error",
-                "message": (
-                    f"Repository location '{location_name}' reloaded"
-                    if success
-                    else "Failed to reload"
-                ),
-            }
-        except DagsterCLIError as e:
-            return {"status": "error", "error_type": type(e).__name__, "error": str(e)}
-        except Exception as e:
-            return {"status": "error", "error_type": "UnknownError", "error": str(e)}
+        client = DagsterClient(profile_name, deployment)
+        client.reload_repository_location(location_name)
+        return {
+            "status": "success",
+            "message": f"Repository location '{location_name}' reloaded",
+        }
 
-    # Tool: Get run logs
     @mcp.tool()
-    async def get_run_logs(
+    @_mcp_tool
+    async def get_run_logs(  # noqa: C901
         run_id: str,
         limit: int = 100,
         level: str | None = None,
@@ -330,243 +317,161 @@ def create_mcp_server(profile_name: str | None) -> FastMCP:
     ) -> dict:
         """Get event logs for a run, with optional level filtering.
 
+        For investigating failures: use ``level="ERROR"`` to focus on errors, or
+        set ``include_stderr_on_error=True`` (default) to auto-fetch stderr when
+        error events are present.
+
         Args:
-            run_id: Run ID to check (can be partial)
-            limit: Max events to return after filtering (default: 100)
-            level: Minimum log level to include (DEBUG/INFO/WARNING/ERROR/CRITICAL)
-            include_stderr_on_error: Auto-fetch stderr if errors found (default: True)
-            deployment: Optional deployment name (defaults to prod)
+            run_id: Full or partial run ID, ``latest``, or ``last-failure``.
+            limit: Max events to return after filtering (default: 100).
+            level: Minimum log level. One of: DEBUG, INFO, WARNING, ERROR, CRITICAL.
+            include_stderr_on_error: Auto-fetch stderr when errors are found
+                (default: True). Requires Dagster+.
+            deployment: Dagster+ deployment name (default: prod).
 
         Returns:
-            Filtered events with complete level statistics
+            ``{status, run_id, events, statistics, has_errors}``
+            If errors found and ``include_stderr_on_error``: also ``stderr``.
         """
-        import requests
+        client = DagsterClient(profile_name, deployment)
+        full_run_id, err = _resolve_run_id_or_error(client, run_id)
+        if err:
+            return err
+        full_run_id = cast("str", full_run_id)
 
-        try:
-            client = DagsterClient(profile_name, deployment)
-            # Resolve partial run ID if needed
-            full_run_id, error_msg, matching_runs = resolve_run_id(client, run_id)
+        filter_level = None
+        if level:
+            filter_level = level.upper()
+            if filter_level not in LEVEL_HIERARCHY:
+                return mcp_error(
+                    "InvalidArgument",
+                    f"Invalid log level: {level}."
+                    " Valid levels: DEBUG, INFO, WARNING, ERROR, CRITICAL",
+                )
 
-            if error_msg:
-                if matching_runs:
-                    return {
-                        "status": "error",
-                        "error_type": "Ambiguous",
-                        "error": error_msg,
-                        "matches": [
-                            {"id": r["id"], "job": r["pipeline"]["name"]}
-                            for r in matching_runs
-                        ],
-                    }
-                return {
-                    "status": "error",
-                    "error_type": "NotFound",
-                    "error": error_msg,
-                }
+        level_counts = {lvl: 0 for lvl in LEVEL_HIERARCHY}
+        all_events: list = []
+        filtered_events: list = []
+        cursor = None
+        has_more = True
+        total_fetched = 0
 
-            # Validate level if provided
-            filter_level = None
-            if level:
-                filter_level = level.upper()
-                if filter_level not in LEVEL_HIERARCHY:
-                    return {
-                        "status": "error",
-                        "error_type": "InvalidArgument",
-                        "error": (
-                            f"Invalid log level: {level}."
-                            " Valid levels: DEBUG, INFO, WARNING, ERROR, CRITICAL"
-                        ),
-                    }
+        while has_more:
+            logs_data = client.get_run_logs(full_run_id, limit=100, cursor=cursor)
+            events = logs_data.get("events", [])
+            total_fetched += len(events)
 
-            # Initialize counters
-            level_counts = {lvl: 0 for lvl in LEVEL_HIERARCHY}
-            all_events = []
-            filtered_events = []
-            cursor = None
-            has_more = True
-            total_fetched = 0
+            for event in events:
+                event_level = event.get("level") or EVENT_TYPE_LEVELS.get(
+                    event.get("__typename", "")
+                )
+                if event_level and event_level in level_counts:
+                    level_counts[event_level] += 1
 
-            # Paginate through all events
-            while has_more:
-                # Fetch next page
-                logs_data = client.get_run_logs(full_run_id, limit=100, cursor=cursor)
-                events = logs_data.get("events", [])
-
-                # Update total fetched
-                total_fetched += len(events)
-
-                # Count all events by level
+            if filter_level:
                 for event in events:
-                    event_level = event.get("level")
-                    if not event_level:
-                        event_type = event.get("__typename")
-                        event_level = EVENT_TYPE_LEVELS.get(event_type)
+                    if should_include_event(event, filter_level):
+                        filtered_events.append(event)
+                        if len(filtered_events) >= limit:
+                            has_more = False
+                            break
+            else:
+                all_events.extend(events)
+                if len(all_events) >= limit:
+                    has_more = False
+                    break
 
-                    if event_level and event_level in level_counts:
-                        level_counts[event_level] += 1
+            if has_more:
+                has_more = logs_data.get("hasMore", False)
+                cursor = logs_data.get("cursor")
 
-                # Filter events if level specified
-                if filter_level:
-                    for event in events:
-                        if should_include_event(event, filter_level):
-                            filtered_events.append(event)
-                            # Stop if we have enough filtered events
-                            if len(filtered_events) >= limit:
-                                has_more = False
-                                break
-                else:
-                    all_events.extend(events)
-                    # Stop if we have enough events (no filtering)
-                    if len(all_events) >= limit:
-                        has_more = False
-                        break
+        events_to_return = (
+            filtered_events[:limit] if filter_level else all_events[:limit]
+        )
+        error_types = {"ExecutionStepFailureEvent", "RunFailureEvent"}
+        has_errors = any(
+            event.get("level") in ["ERROR", "CRITICAL"]
+            or event.get("__typename") in error_types
+            for event in events_to_return
+        )
 
-                # Check for more pages
-                if has_more:
-                    has_more = logs_data.get("hasMore", False)
-                    cursor = logs_data.get("cursor")
-
-            # Use filtered events if filtering was applied, limit results
-            events_to_return = (
-                filtered_events[:limit] if filter_level else all_events[:limit]
-            )
-
-            # Check for errors in returned events
-            has_errors = any(
-                event.get("level") in ["ERROR", "CRITICAL"]
-                or event.get("__typename")
-                in ["ExecutionStepFailureEvent", "RunFailureEvent"]
-                for event in events_to_return
-            )
-
-            result = {
-                "status": "success",
-                "run_id": full_run_id,
-                "events": events_to_return,
-                "statistics": {
-                    "total_events": total_fetched,
-                    "levels": level_counts,
-                    "filter_applied": filter_level,
-                    "events_matching_filter": len(filtered_events)
-                    if filter_level
-                    else total_fetched,
-                    "events_returned": len(events_to_return),
-                },
-                "has_more_filtered": len(filtered_events) > limit
+        result: dict = {
+            "status": "success",
+            "run_id": full_run_id,
+            "events": events_to_return,
+            "statistics": {
+                "total_events": total_fetched,
+                "levels": level_counts,
+                "filter_applied": filter_level,
+                "events_matching_filter": len(filtered_events)
                 if filter_level
-                else len(all_events) > limit,
-                "has_errors": has_errors,
-            }
+                else total_fetched,
+                "events_returned": len(events_to_return),
+            },
+            "has_more_filtered": (len(filtered_events) > limit)
+            if filter_level
+            else (len(all_events) > limit),
+            "has_errors": has_errors,
+        }
 
-            # Auto-fetch stderr if there are errors
-            if has_errors and include_stderr_on_error:
-                log_urls = client.get_compute_log_urls(full_run_id)
-                stderr_url = log_urls.get("stderr_url")
+        if has_errors and include_stderr_on_error:
+            stderr_result = _fetch_compute_log(client, full_run_id, "stderr")
+            if stderr_result.get("available"):
+                result["stderr"] = stderr_result["content"]
+                result["stderr_available"] = True
+            else:
+                result["stderr_available"] = False
+                result["stderr_note"] = stderr_result.get("note") or stderr_result.get(
+                    "error", "stderr unavailable"
+                )
 
-                if stderr_url:
-                    try:
-                        response = requests.get(stderr_url, timeout=30)
-                        response.raise_for_status()
-                        stderr_content = response.text.strip()
-                        result["stderr"] = stderr_content
-                        result["stderr_available"] = True
-                    except Exception as e:
-                        result["stderr_error"] = str(e)
-                        result["stderr_available"] = False
-                else:
-                    result["stderr_available"] = False
-                    result["stderr_note"] = (
-                        "stderr logs not available (may require Dagster+)"
-                    )
+        return result
 
-            return result
-        except DagsterCLIError as e:
-            return {"status": "error", "error_type": type(e).__name__, "error": str(e)}
-        except Exception as e:
-            return {"status": "error", "error_type": "UnknownError", "error": str(e)}
-
-    # Tool: Get compute logs
     @mcp.tool()
+    @_mcp_tool
     async def get_compute_logs(
         run_id: str,
         log_type: str = "stderr",
         deployment: str | None = None,
     ) -> dict:
-        """Get stdout/stderr logs for a run (Dagster+ only).
+        """Get stdout or stderr compute logs for a run (Dagster+ only).
+
+        Prefer ``get_run_logs`` with ``include_stderr_on_error=True`` for
+        investigating failures — it combines event logs and stderr in one call.
+        Use this tool when you need raw stdout or the full stderr independently.
 
         Args:
-            run_id: Run ID to check (can be partial)
-            log_type: Type of log to fetch - 'stdout' or 'stderr' (default: 'stderr')
-            deployment: Optional deployment name (defaults to prod)
+            run_id: Full or partial run ID, ``latest``, or ``last-failure``.
+            log_type: ``"stdout"`` or ``"stderr"`` (default: ``"stderr"``).
+            deployment: Dagster+ deployment name (default: prod).
 
         Returns:
-            Log content or error if not available
+            ``{status, run_id, log_type, content, size}``
         """
-        import requests
+        if log_type not in ["stdout", "stderr"]:
+            return mcp_error("InvalidArgument", "log_type must be 'stdout' or 'stderr'")
 
-        try:
-            # Validate log_type
-            if log_type not in ["stdout", "stderr"]:
-                return {
-                    "status": "error",
-                    "error_type": "InvalidArgument",
-                    "error": "log_type must be 'stdout' or 'stderr'",
-                }
+        client = DagsterClient(profile_name, deployment)
+        full_run_id, err = _resolve_run_id_or_error(client, run_id)
+        if err:
+            return err
+        full_run_id = cast("str", full_run_id)
 
-            client = DagsterClient(profile_name, deployment)
-            # Resolve partial run ID if needed
-            full_run_id, error_msg, matching_runs = resolve_run_id(client, run_id)
+        log_result = _fetch_compute_log(client, full_run_id, log_type)
+        if not log_result.get("available"):
+            return mcp_error(
+                "NotAvailable",
+                log_result.get("error")
+                or log_result.get("note", f"No {log_type} logs available"),
+            )
 
-            if error_msg:
-                if matching_runs:
-                    return {
-                        "status": "error",
-                        "error_type": "Ambiguous",
-                        "error": error_msg,
-                        "matches": [
-                            {"id": r["id"], "job": r["pipeline"]["name"]}
-                            for r in matching_runs
-                        ],
-                    }
-                return {
-                    "status": "error",
-                    "error_type": "NotFound",
-                    "error": error_msg,
-                }
-
-            # Get compute log URLs
-            log_urls = client.get_compute_log_urls(full_run_id)
-            url = log_urls.get(f"{log_type}_url")
-
-            if not url:
-                return {
-                    "status": "error",
-                    "error_type": "NotAvailable",
-                    "error": f"No {log_type} logs available for this run",
-                    "note": "Compute logs may only be available for Dagster+",
-                }
-
-            # Download log content
-            response = requests.get(url, timeout=30)
-            response.raise_for_status()
-            log_content = response.text
-
-            return {
-                "status": "success",
-                "run_id": full_run_id,
-                "log_type": log_type,
-                "content": log_content,
-                "size": len(log_content),
-            }
-        except requests.RequestException as e:
-            return {
-                "status": "error",
-                "error_type": "DownloadError",
-                "error": f"Failed to download {log_type}: {str(e)}",
-            }
-        except DagsterCLIError as e:
-            return {"status": "error", "error_type": type(e).__name__, "error": str(e)}
-        except Exception as e:
-            return {"status": "error", "error_type": "UnknownError", "error": str(e)}
+        content = log_result["content"]
+        return {
+            "status": "success",
+            "run_id": full_run_id,
+            "log_type": log_type,
+            "content": content,
+            "size": len(content),
+        }
 
     return mcp

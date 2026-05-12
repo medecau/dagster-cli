@@ -1,12 +1,12 @@
 """Job-related commands for Dagster CLI."""
 
 import json
-from typing import Optional
 
 import typer
 
 from dagster_cli.client import DagsterClient
 from dagster_cli.constants import (
+    DEFAULT_LIST_LIMIT,
     DEPLOYMENT_OPTION_HELP,
     DEPLOYMENT_OPTION_NAME,
     DEPLOYMENT_OPTION_SHORT,
@@ -27,7 +27,7 @@ app = typer.Typer(
 
 [bold cyan]Available commands:[/bold cyan]
   [green]list[/green]     List all jobs [dim](--location, --json)[/dim]
-  [green]view[/green]     View job details [dim]JOB_NAME [--json][/dim]
+  [green]view[/green]     View job details [dim]JOB_NAME[/dim]
   [green]run[/green]      Run a job [dim]JOB_NAME [--config FILE] [--tags][/dim]
 
 [dim]Use 'dgc job COMMAND --help' for detailed options[/dim]""",
@@ -50,7 +50,6 @@ def job_callback(
         print_tldr("job")
         raise typer.Exit()
 
-    # If no command was provided, show help
     if ctx.invoked_subcommand is None:
         console.print(ctx.get_help())
         raise typer.Exit()
@@ -63,6 +62,12 @@ def list_jobs(
         "--location",
         "-l",
         help="Filter by repository location",
+    ),
+    limit: int = typer.Option(
+        DEFAULT_LIST_LIMIT,
+        "--limit",
+        "-n",
+        help="Maximum number of jobs to show",
     ),
     profile: str | None = typer.Option(
         None,
@@ -82,10 +87,11 @@ def list_jobs(
     try:
         client = DagsterClient(profile, deployment)
 
-        with create_spinner("Fetching jobs...") as progress:
-            task = progress.add_task("Fetching jobs...", total=None)
+        with create_spinner("Fetching jobs...") as (progress, task):
             jobs = client.list_jobs(location)
             progress.remove_task(task)
+
+        jobs = jobs[:limit]
 
         if not jobs:
             print_warning("No jobs found")
@@ -103,7 +109,7 @@ def list_jobs(
 
 
 @app.command()
-def run(
+def run(  # noqa: C901
     job_name: str = typer.Argument(..., help="Name of the job to run"),
     config: str | None = typer.Option(
         None,
@@ -141,11 +147,22 @@ def run(
         DEPLOYMENT_OPTION_SHORT,
         help=DEPLOYMENT_OPTION_HELP,
     ),
-    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt"),
+    yes: bool = typer.Option(
+        False,
+        "--yes",
+        "-y",
+        help="Skip confirmation prompt",
+        envvar="DGC_ASSUME_YES",
+    ),
+    watch: bool = typer.Option(
+        False,
+        "--watch",
+        "-w",
+        help="Watch run progress until completion",
+    ),
 ):
     """Submit a job for execution."""
     try:
-        # Parse run configuration
         run_config = {}
         if config:
             try:
@@ -160,7 +177,6 @@ def run(
                 print_error(f"Invalid JSON in config file: {e}")
                 raise typer.Exit(1) from e
 
-        # Show what we're about to do
         print_info(f"Job: {job_name}")
         if location:
             print_info(f"Location: {location}")
@@ -169,15 +185,13 @@ def run(
         if run_config:
             print_info("Run configuration provided")
 
-        # Confirmation
         if not yes and not typer.confirm("Submit this job?"):
             print_warning("Cancelled")
             return
 
         client = DagsterClient(profile, deployment)
 
-        with create_spinner("Submitting job...") as progress:
-            task = progress.add_task("Submitting job...", total=None)
+        with create_spinner("Submitting job...") as (progress, task):
             run_id = client.submit_job_run(
                 job_name=job_name,
                 run_config=run_config,
@@ -189,14 +203,13 @@ def run(
         print_success("Job submitted successfully!")
         print_info(f"Run ID: {run_id}")
 
-        if base_url := client.profile.get("url", ""):
-            # Apply deployment to URL
-            url = base_url
-            if client.deployment and client.deployment != "prod":
-                url = url.replace("/prod", f"/{client.deployment}")
-            if not url.startswith("http"):
-                url = f"https://{url}"
-            print_info(f"View at: {url}/runs/{run_id}")
+        if url := client.run_url(run_id):
+            print_info(f"View at: {url}")
+
+        if watch:
+            from dagster_cli.commands.asset import _watch_run
+
+            _watch_run(client, run_id)
 
     except Exception as e:
         print_error(f"Failed to submit job: {str(e)}")
@@ -218,27 +231,40 @@ def view(
         DEPLOYMENT_OPTION_SHORT,
         help=DEPLOYMENT_OPTION_HELP,
     ),
+    json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
 ):
     """View job details."""
     try:
         client = DagsterClient(profile, deployment)
 
-        with create_spinner("Fetching job details...") as progress:
-            task = progress.add_task("Fetching job details...", total=None)
+        with create_spinner("Fetching job details...") as (progress, task):
             jobs = client.list_jobs()
             progress.remove_task(task)
 
         job = next((j for j in jobs if j["name"] == job_name), None)
         if not job:
+            from difflib import get_close_matches
+
             print_error(f"Job '{job_name}' not found")
+            close = get_close_matches(
+                job_name, [j["name"] for j in jobs], n=3, cutoff=0.6
+            )
+            if close:
+                print_info(f"Did you mean: {', '.join(close)}?")
+            else:
+                print_info("Use 'dgc job list' to see available jobs")
             raise typer.Exit(1)
 
-        # Display job information
-        console.print(f"\n[bold cyan]Job: {job['name']}[/bold cyan]")
-        if job.get("description"):
-            console.print(f"[white]Description:[/white] {job['description']}")
-        console.print(f"[white]Location:[/white] {job.get('location', 'Unknown')}")
-        console.print(f"[white]Repository:[/white] {job.get('repository', 'Unknown')}")
+        if json_output:
+            console.print_json(data=job)
+        else:
+            console.print(f"\n[bold cyan]Job: {job['name']}[/bold cyan]")
+            if job.get("description"):
+                console.print(f"[white]Description:[/white] {job['description']}")
+            console.print(f"[white]Location:[/white] {job.get('location', 'Unknown')}")
+            console.print(
+                f"[white]Repository:[/white] {job.get('repository', 'Unknown')}"
+            )
 
     except Exception as e:
         print_error(f"Failed to view job: {str(e)}")

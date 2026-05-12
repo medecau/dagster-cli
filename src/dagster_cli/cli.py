@@ -1,7 +1,5 @@
 """Main CLI application for Dagster CLI."""
 
-from typing import Optional
-
 import typer
 
 from dagster_cli import __version__
@@ -137,6 +135,13 @@ def main(
 
 @app.command()
 def status(
+    profile: str | None = typer.Option(
+        None,
+        "--profile",
+        "-p",
+        help="Use specific profile",
+        envvar="DGC_PROFILE",
+    ),
     deployment: str | None = typer.Option(
         None,
         DEPLOYMENT_OPTION_NAME,
@@ -153,23 +158,23 @@ def status(
 
     # Check authentication
     if config.has_auth():
-        profile_name = config.get_current_profile_name()
-        profile = config.get_profile()
+        profile_name = profile or config.get_current_profile_name()
+        config_profile = config.get_profile(profile)
 
         print_info(f"Authenticated as profile '{profile_name}'")
 
         # Show URL with deployment if specified
-        url = profile.get("url", "Unknown")
+        url = config_profile.get("url", "Unknown")
         if deployment and deployment != "prod" and url != "Unknown":
             url = url.replace("/prod", f"/{deployment}")
             print_info(f"Connected to: {url} (with --deployment {deployment})")
         else:
             print_info(f"Connected to: {url}")
 
-        if profile.get("location"):
-            print_info(f"Default location: {profile['location']}")
-        if profile.get("repository"):
-            print_info(f"Default repository: {profile['repository']}")
+        if config_profile.get("location"):
+            print_info(f"Default location: {config_profile['location']}")
+        if config_profile.get("repository"):
+            print_info(f"Default repository: {config_profile['repository']}")
     else:
         console.print("[yellow]Not authenticated[/yellow]")
         console.print("Run 'dgc auth login' to get started")

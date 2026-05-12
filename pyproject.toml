@@ -22,7 +22,7 @@ classifiers = [
 dependencies = [
     "typer>=0.9.0",
     "dagster-graphql>=1.8.13",
-    "gql[requests]>=3.5.3",
+    "gql[httpx]>=3.5.3",
     "python-dotenv>=1.0.1",
     "rich>=13.0.0",
     "mcp[cli]>=1.2.0",
@@ -97,12 +97,6 @@ ignore = [
 ]
 "src/dagster_cli/commands/deployment.py" = [
     "PT028",  # def test() is a CLI command, not a pytest test
-]
-"src/dagster_cli/commands/run.py" = [
-    "ARG001", # cancel stub declares params for Typer CLI binding
-]
-"src/dagster_cli/constants.py" = [
-    "S105",   # ENV_TOKEN holds an env var name, not a secret
 ]
 
 [tool.pytest.ini_options]

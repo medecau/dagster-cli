@@ -1,13 +1,14 @@
 """Automation-related commands for Dagster CLI."""
 
-from typing import Optional
-
 import typer
 
 from dagster_cli.client import DagsterClient
 from dagster_cli.utils.output import (
     console,
     create_spinner,
+    print_automation_details,
+    print_automation_ticks_table,
+    print_automations_table,
     print_error,
     print_info,
     print_runs_table,
@@ -34,8 +35,7 @@ def list_automations(
     try:
         client = DagsterClient(profile)
 
-        with create_spinner("Fetching automations...") as progress:
-            task = progress.add_task("Fetching automations...", total=None)
+        with create_spinner("Fetching automations...") as (progress, task):
             automations = client.list_automations()
             progress.remove_task(task)
 
@@ -47,8 +47,6 @@ def list_automations(
             console.print_json(data=automations)
         else:
             print_info(f"Found {len(automations)} automations")
-            from dagster_cli.utils.output import print_automations_table
-
             print_automations_table(automations)
 
     except Exception as e:
@@ -71,20 +69,28 @@ def view(
     try:
         client = DagsterClient(profile)
 
-        with create_spinner("Fetching automation details...") as progress:
-            task = progress.add_task("Fetching automation details...", total=None)
+        with create_spinner("Fetching automation details...") as (progress, task):
             automation = client.get_automation_details(name)
             progress.remove_task(task)
 
         if not automation:
+            from difflib import get_close_matches
+
+            try:
+                all_names = [a["name"] for a in client.list_automations()]
+                close = get_close_matches(name, all_names, n=3, cutoff=0.6)
+            except Exception:  # noqa: BLE001
+                close = []
             print_error(f"Automation '{name}' not found")
+            if close:
+                print_info(f"Did you mean: {', '.join(close)}?")
+            else:
+                print_info("Use 'dgc automation list' to see available automations")
             raise typer.Exit(1)
 
         if json_output:
             console.print_json(data=automation)
         else:
-            from dagster_cli.utils.output import print_automation_details
-
             print_automation_details(automation)
 
     except Exception as e:
@@ -114,8 +120,7 @@ def history(
         client = DagsterClient(profile)
 
         if ticks:
-            with create_spinner("Fetching tick history...") as progress:
-                task = progress.add_task("Fetching tick history...", total=None)
+            with create_spinner("Fetching tick history...") as (progress, task):
                 ticks_data = client.get_automation_ticks(name, limit=limit)
                 progress.remove_task(task)
 
@@ -127,13 +132,9 @@ def history(
                 console.print_json(data=ticks_data)
             else:
                 print_info(f"Showing {len(ticks_data)} ticks for '{name}'")
-                from dagster_cli.utils.output import print_automation_ticks_table
-
                 print_automation_ticks_table(ticks_data)
         else:
-            # Default: show runs
-            with create_spinner("Fetching run history...") as progress:
-                task = progress.add_task("Fetching run history...", total=None)
+            with create_spinner("Fetching run history...") as (progress, task):
                 runs = client.get_automation_runs(name, limit=limit)
                 progress.remove_task(task)
 

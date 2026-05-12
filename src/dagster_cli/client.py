@@ -1,6 +1,8 @@
 """GraphQL client wrapper for Dagster+ API."""
 
-from datetime import datetime, timezone
+import json
+import os
+from collections.abc import Iterator
 from typing import Any
 from urllib.parse import urlparse
 
@@ -9,11 +11,17 @@ from gql import Client, gql
 from gql.transport.requests import RequestsHTTPTransport
 
 from dagster_cli.config import Config
-from dagster_cli.constants import DATETIME_FORMAT, DEFAULT_TIMEOUT
-from dagster_cli.utils.errors import APIError, AuthenticationError
+from dagster_cli.constants import DEFAULT_TIMEOUT
+from dagster_cli.utils.errors import (
+    APIError,
+    AuthenticationError,
+    ConfigError,
+    NotFoundError,
+)
+from dagster_cli.utils.format import format_asset_key
 
-_LAUNCH_ASSET_RUN_MUTATION = gql("""
-    mutation LaunchAssetRun($executionParams: ExecutionParams!) {
+_LAUNCH_RUN_MUTATION = gql("""
+    mutation LaunchRun($executionParams: ExecutionParams!) {
         launchPipelineExecution(executionParams: $executionParams) {
             __typename
             ... on LaunchRunSuccess {
@@ -32,6 +40,117 @@ _LAUNCH_ASSET_RUN_MUTATION = gql("""
         }
     }
 """)
+
+# Inline-fragment block shared by get_run_logs — avoids 14 near-identical fragments
+_EVENT_INLINE_FIELDS = """
+    __typename
+    ... on MessageEvent { timestamp message level stepKey }
+    ... on LogMessageEvent { timestamp message level stepKey }
+    ... on EngineEvent { timestamp message level stepKey }
+    ... on ExecutionStepSuccessEvent { timestamp message level stepKey }
+    ... on ExecutionStepFailureEvent {
+        timestamp message level stepKey
+        error { message stack }
+    }
+    ... on RunSuccessEvent { timestamp message level }
+    ... on RunFailureEvent {
+        timestamp message level
+        error { message stack }
+    }
+    ... on RunStartEvent { timestamp message level }
+    ... on MaterializationEvent {
+        timestamp message level stepKey
+        assetKey { path }
+    }
+    ... on AssetMaterializationPlannedEvent {
+        timestamp message level stepKey
+        assetKey { path }
+    }
+    ... on HandledOutputEvent { timestamp message level stepKey outputName }
+    ... on AlertStartEvent { timestamp message level }
+    ... on AlertSuccessEvent { timestamp message level }
+    ... on AlertFailureEvent { timestamp message level }
+"""
+
+
+def _iter_repositories(result: dict) -> Iterator[tuple[dict, str]]:
+    """Yield (repo_dict, location_name) for every repositoriesOrError node."""
+    for repo in result.get("repositoriesOrError", {}).get("nodes", []):
+        yield repo, repo.get("location", {}).get("name", "")
+
+
+def _parse_tick_summary(state: dict) -> dict:
+    """Extract last-tick metadata from a scheduleState or sensorState dict."""
+    ticks = state.get("ticks", [])
+    if not ticks:
+        return {
+            "last_tick": None,
+            "tick_status": None,
+            "tick_run_count": 0,
+            "last_run_status": None,
+            "last_run_timestamp": None,
+        }
+    tick = ticks[0]
+    runs = tick.get("runs", [])
+    run_ids = tick.get("runIds", [])
+    tick_status = tick.get("status", "SKIPPED")
+
+    if runs:
+        last_run_status = runs[0].get("status", "UNKNOWN")
+        last_run_timestamp = runs[0].get("startTime")
+    elif run_ids:
+        last_run_status = "UNKNOWN"
+        last_run_timestamp = None
+    elif tick_status == "SKIPPED":
+        last_run_status = "SKIPPED"
+        last_run_timestamp = None
+    else:
+        last_run_status = None
+        last_run_timestamp = None
+
+    return {
+        "last_tick": tick.get("timestamp"),
+        "tick_status": tick_status,
+        "tick_run_count": len(run_ids),
+        "last_run_status": last_run_status,
+        "last_run_timestamp": last_run_timestamp,
+    }
+
+
+def _build_automation_detail(
+    item: dict,
+    auto_type: str,
+    location_name: str,
+    repo_name: str,
+) -> dict:
+    """Build an automation detail dict from a schedule or sensor GraphQL node."""
+    if auto_type == "Schedule":
+        state = item.get("scheduleState", {})
+        return {
+            "name": item["name"],
+            "type": "Schedule",
+            "target": item.get("pipelineName", ""),
+            "description": item.get("description", ""),
+            "cron_schedule": item.get("cronSchedule", ""),
+            "execution_timezone": item.get("executionTimezone", ""),
+            "status": state.get("status", "STOPPED"),
+            "recent_ticks": state.get("ticks", []),
+            "location": location_name,
+            "repository": repo_name,
+        }
+    targets = item.get("targets", [])
+    state = item.get("sensorState", {})
+    return {
+        "name": item["name"],
+        "type": "Sensor",
+        "target": targets[0].get("pipelineName", "") if targets else "",
+        "description": item.get("description", ""),
+        "min_interval_seconds": item.get("minIntervalSeconds"),
+        "status": state.get("status", "STOPPED"),
+        "recent_ticks": state.get("ticks", []),
+        "location": location_name,
+        "repository": repo_name,
+    }
 
 
 def _split_url_for_dagster_client(url: str) -> tuple[str, bool]:
@@ -68,9 +187,18 @@ class DagsterClient:
         self.profile = self.config.get_profile(profile_name)
         self.deployment = deployment or "prod"
 
+        # DGC_URL / DGC_TOKEN override profile config for one-shot/CI use
+        if env_url := os.environ.get("DGC_URL"):
+            self.profile = dict(self.profile)
+            self.profile["url"] = env_url
+        if env_token := os.environ.get("DGC_TOKEN"):
+            self.profile = dict(self.profile)
+            self.profile["token"] = env_token
+
         if not self.profile.get("url") or not self.profile.get("token"):
             raise AuthenticationError(
-                "No authentication found. Please run 'dgc auth login' first.",
+                "No authentication found. "
+                "Run 'dgc auth login' or set DGC_URL and DGC_TOKEN.",
             )
 
         self._dagster_client: DagsterGraphQLClient | None = None
@@ -107,10 +235,6 @@ class DagsterClient:
 
         # Try to resolve branch name to deployment name
         try:
-            # Create a temporary client to list deployments
-            from gql import Client, gql
-            from gql.transport.requests import RequestsHTTPTransport
-
             # Use prod URL to list deployments
             url = self.profile["url"]
             if not url.startswith("http"):
@@ -191,117 +315,109 @@ class DagsterClient:
                 raise APIError(f"Failed to create GraphQL client: {e}") from e
         return self._gql_client
 
+    def _execute(self, query: Any, variables: dict | None = None) -> dict:
+        """Execute a GQL query. Only transport failures are wrapped as APIError;
+        parser errors (KeyError, TypeError, etc.) propagate naturally."""
+        try:
+            return self.gql_client.execute(query, variable_values=variables)
+        except APIError:
+            raise
+        except Exception as e:
+            raise APIError(str(e)) from e
+
     def get_deployment_info(self) -> dict[str, Any]:
         """Get basic information about the Dagster deployment."""
-        try:
-            query = gql("""
-                query DeploymentInfo {
-                    version
-                    repositoriesOrError {
-                        ... on RepositoryConnection {
-                            nodes {
+        query = gql("""
+            query DeploymentInfo {
+                version
+                repositoriesOrError {
+                    ... on RepositoryConnection {
+                        nodes {
+                            name
+                            location {
                                 name
-                                location {
-                                    name
-                                }
-                                pipelines {
-                                    name
-                                }
+                            }
+                            pipelines {
+                                name
                             }
                         }
                     }
                 }
-            """)
-
-            return self.gql_client.execute(query)
-        except Exception as e:
-            raise APIError(f"Failed to get deployment info: {e}") from e
+            }
+        """)
+        return self._execute(query)
 
     def list_jobs(
         self,
         repository_location: str | None = None,
     ) -> list[dict[str, Any]]:
         """List all available jobs in the deployment."""
-        try:
-            query = gql("""
-                query ListJobs {
-                    repositoriesOrError {
-                        ... on RepositoryConnection {
-                            nodes {
+        query = gql("""
+            query ListJobs {
+                repositoriesOrError {
+                    ... on RepositoryConnection {
+                        nodes {
+                            name
+                            location {
                                 name
-                                location {
-                                    name
-                                }
-                                pipelines {
-                                    name
-                                    description
-                                    isJob
-                                }
+                            }
+                            pipelines {
+                                name
+                                description
+                                isJob
                             }
                         }
                     }
                 }
-            """)
+            }
+        """)
 
-            result = self.gql_client.execute(query)
-            jobs = []
-
-            if "repositoriesOrError" in result:
-                repositories = result["repositoriesOrError"].get("nodes", [])
-                for repo in repositories:
-                    location_name = repo.get("location", {}).get("name", "")
-
-                    # Filter by location if specified
-                    if repository_location and location_name != repository_location:
-                        continue
-
-                    jobs.extend(
-                        {
-                            "name": pipeline["name"],
-                            "description": pipeline.get("description", ""),
-                            "location": location_name,
-                            "repository": repo["name"],
-                        }
-                        for pipeline in repo.get("pipelines", [])
-                        if pipeline.get("isJob", True)
-                    )
-            return jobs
-        except Exception as e:
-            raise APIError(f"Failed to list jobs: {e}") from e
+        result = self._execute(query)
+        jobs = []
+        for repo, location_name in _iter_repositories(result):
+            if repository_location and location_name != repository_location:
+                continue
+            jobs.extend(
+                {
+                    "name": pipeline["name"],
+                    "description": pipeline.get("description", ""),
+                    "location": location_name,
+                    "repository": repo["name"],
+                }
+                for pipeline in repo.get("pipelines", [])
+                if pipeline.get("isJob", True)
+            )
+        return jobs
 
     def get_run_status(self, run_id: str) -> dict[str, Any] | None:
         """Get the status of a specific run."""
-        try:
-            query = gql("""
-                query GetRunStatus($runId: ID!) {
-                    pipelineRunOrError(runId: $runId) {
-                        ... on Run {
-                            id
-                            status
-                            pipeline {
-                                name
-                            }
-                            startTime
-                            endTime
-                            stats {
-                                ... on RunStatsSnapshot {
-                                    stepsFailed
-                                    stepsSucceeded
-                                    expectations
-                                    materializations
-                                }
+        query = gql("""
+            query GetRunStatus($runId: ID!) {
+                pipelineRunOrError(runId: $runId) {
+                    ... on Run {
+                        id
+                        status
+                        pipeline {
+                            name
+                        }
+                        startTime
+                        endTime
+                        stats {
+                            ... on RunStatsSnapshot {
+                                stepsFailed
+                                stepsSucceeded
+                                expectations
+                                materializations
                             }
                         }
                     }
                 }
-            """)
+            }
+        """)
 
-            result = self.gql_client.execute(query, variable_values={"runId": run_id})
-            run_data = result.get("pipelineRunOrError", {})
-
-            return run_data if "status" in run_data else None
-        except Exception as e:
-            raise APIError(f"Failed to get run status: {e}") from e
+        result = self._execute(query, {"runId": run_id})
+        run_data = result.get("pipelineRunOrError", {})
+        return run_data if "status" in run_data else None
 
     def submit_job_run(
         self,
@@ -311,21 +427,30 @@ class DagsterClient:
         repository_name: str | None = None,
     ) -> str:
         """Submit a job for execution."""
-        try:
-            # Use profile defaults if not provided
-            if not repository_location_name:
-                repository_location_name = self.profile.get("location")
-            if not repository_name:
-                repository_name = self.profile.get("repository")
+        if not repository_location_name:
+            repository_location_name = self.profile.get("location")
+        if not repository_name:
+            repository_name = self.profile.get("repository")
 
-            return self.dagster_client.submit_job_execution(
-                job_name,
-                repository_location_name=repository_location_name,
-                repository_name=repository_name,
-                run_config=run_config or {},
-            )
-        except DagsterGraphQLClientError as e:
-            raise APIError(f"Failed to submit job: {e}") from e
+        execution_params = {
+            "selector": {
+                "repositoryLocationName": repository_location_name,
+                "repositoryName": repository_name,
+                "pipelineName": job_name,
+            },
+            "mode": "default",
+            "runConfigData": json.dumps(run_config) if run_config else "{}",
+            "executionMetadata": {"tags": []},
+        }
+        result = self._execute(
+            _LAUNCH_RUN_MUTATION, {"executionParams": execution_params}
+        )
+        payload = result.get("launchPipelineExecution", {})
+        typename = payload.get("__typename")
+        if typename in ("LaunchRunSuccess", "LaunchPipelineRunSuccess"):
+            return payload["run"]["runId"]
+        errors = payload.get("errors") or payload.get("message", payload)
+        raise APIError(f"Failed to submit job '{job_name}' ({typename}): {errors}")
 
     def get_recent_runs(
         self,
@@ -333,54 +458,84 @@ class DagsterClient:
         status: str | None = None,
     ) -> list[dict[str, Any]]:
         """Get recent run history."""
-        try:
-            query = gql("""
-                query GetRecentRuns($limit: Int!) {
-                    pipelineRunsOrError(limit: $limit) {
-                        ... on Runs {
-                            results {
-                                id
-                                status
-                                pipeline {
-                                    name
-                                }
-                                startTime
-                                endTime
-                                mode
-                                stats {
-                                    ... on RunStatsSnapshot {
-                                        stepsFailed
-                                        stepsSucceeded
-                                    }
+        query = gql("""
+            query GetRecentRuns($limit: Int!) {
+                pipelineRunsOrError(limit: $limit) {
+                    ... on Runs {
+                        results {
+                            id
+                            status
+                            pipeline {
+                                name
+                            }
+                            startTime
+                            endTime
+                            mode
+                            stats {
+                                ... on RunStatsSnapshot {
+                                    stepsFailed
+                                    stepsSucceeded
                                 }
                             }
                         }
                     }
                 }
-            """)
+            }
+        """)
 
-            result = self.gql_client.execute(query, variable_values={"limit": limit})
-            runs_data = result.get("pipelineRunsOrError", {})
+        result = self._execute(query, {"limit": limit})
+        runs = result.get("pipelineRunsOrError", {}).get("results", [])
+        if status:
+            runs = [r for r in runs if r.get("status") == status.upper()]
+        return runs
 
-            if "results" in runs_data:
-                runs = runs_data["results"]
-
-                # Filter by status if specified
-                if status:
-                    runs = [r for r in runs if r.get("status") == status.upper()]
-
-                return runs
-            return []
-        except Exception as e:
-            raise APIError(f"Failed to get recent runs: {e}") from e
-
-    def reload_repository_location(self, location_name: str) -> bool:
-        """Reload a repository location."""
+    def reload_repository_location(self, location_name: str) -> None:
+        """Reload a repository location. Raises APIError on failure."""
         try:
             self.dagster_client.reload_repository_location(location_name)
-            return True
         except DagsterGraphQLClientError as e:
             raise APIError(f"Failed to reload repository location: {e}") from e
+
+    def run_url(self, run_id: str) -> str | None:
+        """Construct the Dagster+ URL for a run, or None if no URL is configured."""
+        base_url = self.profile.get("url", "")
+        if not base_url:
+            return None
+        url = base_url
+        if self.deployment and self.deployment != "prod":
+            url = url.replace("/prod", f"/{self.deployment}")
+        if not url.startswith("http"):
+            url = f"https://{url}"
+        return f"{url}/runs/{run_id}"
+
+    def cancel_run(self, run_id: str) -> None:
+        """Cancel (terminate) a running run. Raises APIError on failure."""
+        mutation = gql("""
+            mutation TerminateRun($runId: String!) {
+                terminateRun(runId: $runId) {
+                    __typename
+                    ... on TerminateRunSuccess {
+                        run { runId }
+                    }
+                    ... on TerminateRunFailure { message }
+                    ... on RunNotFoundError { message }
+                    ... on PythonError { message }
+                    ... on UnauthorizedError { message }
+                }
+            }
+        """)
+        result = self._execute(mutation, {"runId": run_id})
+        payload = result.get("terminateRun", {})
+        typename = payload.get("__typename")
+        if typename == "TerminateRunSuccess":
+            return
+        if typename == "RunNotFoundError":
+            raise NotFoundError(
+                f"Run '{run_id}' not found: {payload.get('message', '')}"
+            )
+        raise APIError(
+            f"Failed to cancel run ({typename}): {payload.get('message', payload)}"
+        )
 
     def list_assets(
         self,
@@ -389,150 +544,124 @@ class DagsterClient:
         location: str | None = None,
     ) -> list[dict[str, Any]]:
         """List all assets in the deployment."""
-        try:
-            query = gql("""
-                query ListAssets {
-                    repositoriesOrError {
-                        ... on RepositoryConnection {
-                            nodes {
+        query = gql("""
+            query ListAssets {
+                repositoriesOrError {
+                    ... on RepositoryConnection {
+                        nodes {
+                            name
+                            location {
                                 name
-                                location {
-                                    name
+                            }
+                            assetNodes {
+                                id
+                                assetKey {
+                                    path
                                 }
-                                assetNodes {
-                                    id
-                                    assetKey {
-                                        path
-                                    }
-                                    groupName
-                                    description
-                                    computeKind
-                                }
+                                groupName
+                                description
+                                computeKind
                             }
                         }
                     }
                 }
-            """)
+            }
+        """)
 
-            result = self.gql_client.execute(query)
-            assets = []
-
-            if "repositoriesOrError" in result:
-                repositories = result["repositoriesOrError"].get("nodes", [])
-                for repo in repositories:
-                    location_name = repo.get("location", {}).get("name", "")
-
-                    # Filter by location if specified
-                    if location and location_name != location:
-                        continue
-
-                    for asset_node in repo.get("assetNodes", []):
-                        asset_key = asset_node.get("assetKey", {}).get("path", [])
-                        asset_key_str = (
-                            "/".join(asset_key)
-                            if isinstance(asset_key, list)
-                            else str(asset_key)
-                        )
-
-                        # Filter by prefix if specified
-                        if prefix and not asset_key_str.startswith(prefix):
-                            continue
-
-                        # Filter by group if specified
-                        if group and asset_node.get("groupName") != group:
-                            continue
-
-                        assets.append(
-                            {
-                                "id": asset_node.get("id"),
-                                "key": asset_node.get("assetKey"),
-                                "groupName": asset_node.get("groupName"),
-                                "description": asset_node.get("description"),
-                                "computeKind": asset_node.get("computeKind"),
-                                "location": location_name,
-                                "repository": repo["name"],
-                            },
-                        )
-
-            return assets
-        except Exception as e:
-            raise APIError(f"Failed to list assets: {e}") from e
+        result = self._execute(query)
+        assets = []
+        for repo, location_name in _iter_repositories(result):
+            if location and location_name != location:
+                continue
+            for asset_node in repo.get("assetNodes", []):
+                asset_key_str = format_asset_key(
+                    asset_node.get("assetKey", {}).get("path", [])
+                )
+                if prefix and not asset_key_str.startswith(prefix):
+                    continue
+                if group and asset_node.get("groupName") != group:
+                    continue
+                assets.append(
+                    {
+                        "id": asset_node.get("id"),
+                        "key": asset_node.get("assetKey"),
+                        "groupName": asset_node.get("groupName"),
+                        "description": asset_node.get("description"),
+                        "computeKind": asset_node.get("computeKind"),
+                        "location": location_name,
+                        "repository": repo["name"],
+                    }
+                )
+        return assets
 
     def get_asset_details(self, asset_key: str) -> dict[str, Any] | None:
         """Get detailed information about a specific asset."""
-        try:
-            # Convert string key to path array
-            key_parts = asset_key.split("/")
+        key_parts = asset_key.split("/")
 
-            query = gql("""
-                query GetAsset($assetKey: AssetKeyInput!) {
-                    assetNodeOrError(assetKey: $assetKey) {
-                        __typename
-                        ... on AssetNode {
-                            id
-                            assetKey {
-                                path
-                            }
-                            description
-                            groupName
-                            computeKind
-                            dependencies {
-                                asset {
-                                    assetKey {
-                                        path
-                                    }
-                                    assetMaterializations(limit: 1) {
-                                        runOrError {
-                                            __typename
-                                            ... on Run {
-                                                status
-                                            }
-                                        }
-                                    }
+        query = gql("""
+            query GetAsset($assetKey: AssetKeyInput!) {
+                assetNodeOrError(assetKey: $assetKey) {
+                    __typename
+                    ... on AssetNode {
+                        id
+                        assetKey {
+                            path
+                        }
+                        description
+                        groupName
+                        computeKind
+                        dependencies {
+                            asset {
+                                assetKey {
+                                    path
                                 }
-                            }
-                            dependedBy {
-                                asset {
-                                    assetKey {
-                                        path
-                                    }
-                                    assetMaterializations(limit: 1) {
-                                        runOrError {
-                                            __typename
-                                            ... on Run {
-                                                status
-                                            }
+                                assetMaterializations(limit: 1) {
+                                    runOrError {
+                                        __typename
+                                        ... on Run {
+                                            status
                                         }
-                                    }
-                                }
-                            }
-                            assetMaterializations(limit: 1) {
-                                runId
-                                timestamp
-                                runOrError {
-                                    __typename
-                                    ... on Run {
-                                        id
-                                        status
                                     }
                                 }
                             }
                         }
-                        ... on AssetNotFoundError {
-                            message
+                        dependedBy {
+                            asset {
+                                assetKey {
+                                    path
+                                }
+                                assetMaterializations(limit: 1) {
+                                    runOrError {
+                                        __typename
+                                        ... on Run {
+                                            status
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        assetMaterializations(limit: 1) {
+                            runId
+                            timestamp
+                            runOrError {
+                                __typename
+                                ... on Run {
+                                    id
+                                    status
+                                }
+                            }
                         }
                     }
+                    ... on AssetNotFoundError {
+                        message
+                    }
                 }
-            """)
+            }
+        """)
 
-            variables = {"assetKey": {"path": key_parts}}
-
-            result = self.gql_client.execute(query, variable_values=variables)
-            asset_data = result.get("assetNodeOrError", {})
-
-            return asset_data if asset_data.get("__typename") == "AssetNode" else None
-        except Exception as e:
-            raise APIError(f"Failed to get asset details: {e}") from e
+        result = self._execute(query, {"assetKey": {"path": key_parts}})
+        asset_data = result.get("assetNodeOrError", {})
+        return asset_data if asset_data.get("__typename") == "AssetNode" else None
 
     def materialize_asset(
         self,
@@ -540,6 +669,12 @@ class DagsterClient:
         partition_key: str | None = None,
     ) -> str:
         """Trigger materialization of an asset."""
+        if not self.profile.get("location") or not self.profile.get("repository"):
+            raise ConfigError(
+                "Asset materialization requires 'location' and 'repository' in the "
+                "profile. Run 'dgc auth login' to update your profile."
+            )
+
         asset_key_path = asset_key.split("/")
         tags = (
             [{"key": "dagster/partition", "value": partition_key}]
@@ -557,53 +692,47 @@ class DagsterClient:
             "runConfigData": "{}",
             "executionMetadata": {"tags": tags},
         }
-        try:
-            result = self.gql_client.execute(
-                _LAUNCH_ASSET_RUN_MUTATION,
-                variable_values={"executionParams": execution_params},
-            )
-        except Exception as e:
-            raise APIError(f"Failed to materialize asset: {e}") from e
-
+        result = self._execute(
+            _LAUNCH_RUN_MUTATION,
+            {"executionParams": execution_params},
+        )
         payload = result.get("launchPipelineExecution", {})
         typename = payload.get("__typename")
-        if typename in ("LaunchRunSuccess", "LaunchPipelineRunSuccess"):
+        if typename == "LaunchRunSuccess":
             return payload["run"]["runId"]
         raise APIError(f"Failed to materialize asset ({typename}): {payload}")
 
     def get_asset_health(self, group: str | None = None) -> list[dict[str, Any]]:
         """Get assets with their latest materialization status for health checks."""
-        try:
-            query = gql("""
-                query GetAssetHealth {
-                    repositoriesOrError {
-                        ... on RepositoryConnection {
-                            nodes {
+        query = gql("""
+            query GetAssetHealth {
+                repositoriesOrError {
+                    ... on RepositoryConnection {
+                        nodes {
+                            name
+                            location {
                                 name
-                                location {
-                                    name
+                            }
+                            assetNodes {
+                                id
+                                assetKey {
+                                    path
                                 }
-                                assetNodes {
-                                    id
-                                    assetKey {
-                                        path
-                                    }
-                                    groupName
-                                    description
-                                    computeKind
-                                    assetMaterializations(limit: 1) {
-                                        runId
-                                        timestamp
-                                        stepKey
-                                        runOrError {
-                                            __typename
-                                            ... on Run {
-                                                id
+                                groupName
+                                description
+                                computeKind
+                                assetMaterializations(limit: 1) {
+                                    runId
+                                    timestamp
+                                    stepKey
+                                    runOrError {
+                                        __typename
+                                        ... on Run {
+                                            id
+                                            status
+                                            stepStats {
+                                                stepKey
                                                 status
-                                                stepStats {
-                                                    stepKey
-                                                    status
-                                                }
                                             }
                                         }
                                     }
@@ -612,36 +741,29 @@ class DagsterClient:
                         }
                     }
                 }
-            """)
+            }
+        """)
 
-            result = self.gql_client.execute(query)
-            assets = []
-
-            if "repositoriesOrError" in result:
-                repositories = result["repositoriesOrError"].get("nodes", [])
-                for repo in repositories:
-                    location_name = repo.get("location", {}).get("name", "")
-
-                    assets.extend(
-                        {
-                            "id": asset_node.get("id"),
-                            "key": asset_node.get("assetKey"),
-                            "groupName": asset_node.get("groupName"),
-                            "description": asset_node.get("description"),
-                            "computeKind": asset_node.get("computeKind"),
-                            "location": location_name,
-                            "repository": repo["name"],
-                            "assetMaterializations": asset_node.get(
-                                "assetMaterializations",
-                                [],
-                            ),
-                        }
-                        for asset_node in repo.get("assetNodes", [])
-                        if not group or asset_node.get("groupName") == group
-                    )
-            return assets
-        except Exception as e:
-            raise APIError(f"Failed to get asset health: {e}") from e
+        result = self._execute(query)
+        assets = []
+        for repo, location_name in _iter_repositories(result):
+            assets.extend(
+                {
+                    "id": asset_node.get("id"),
+                    "key": asset_node.get("assetKey"),
+                    "groupName": asset_node.get("groupName"),
+                    "description": asset_node.get("description"),
+                    "computeKind": asset_node.get("computeKind"),
+                    "location": location_name,
+                    "repository": repo["name"],
+                    "assetMaterializations": asset_node.get(
+                        "assetMaterializations", []
+                    ),
+                }
+                for asset_node in repo.get("assetNodes", [])
+                if not group or asset_node.get("groupName") == group
+            )
+        return assets
 
     def get_run_logs(
         self,
@@ -650,145 +772,45 @@ class DagsterClient:
         cursor: str | None = None,
     ) -> dict[str, Any]:
         """Get event logs for a run."""
-        try:
-            query = gql("""
-                query GetLogsForRun($runId: ID!, $afterCursor: String, $limit: Int) {
-                    logsForRun(
-                        runId: $runId, afterCursor: $afterCursor, limit: $limit
-                    ) {
-                        ... on EventConnection {
-                            events {
-                                __typename
-                                ... on MessageEvent {
-                                    timestamp
-                                    message
-                                    level
-                                    stepKey
-                                }
-                                ... on LogMessageEvent {
-                                    timestamp
-                                    message
-                                    level
-                                    stepKey
-                                }
-                                ... on EngineEvent {
-                                    timestamp
-                                    message
-                                    level
-                                    stepKey
-                                }
-                                ... on ExecutionStepSuccessEvent {
-                                    timestamp
-                                    message
-                                    level
-                                    stepKey
-                                }
-                                ... on ExecutionStepFailureEvent {
-                                    timestamp
-                                    message
-                                    level
-                                    stepKey
-                                    error {
-                                        message
-                                        stack
-                                    }
-                                }
-                                ... on RunSuccessEvent {
-                                    timestamp
-                                    message
-                                    level
-                                }
-                                ... on RunFailureEvent {
-                                    timestamp
-                                    message
-                                    level
-                                    error {
-                                        message
-                                        stack
-                                    }
-                                }
-                                ... on RunStartEvent {
-                                    timestamp
-                                    message
-                                    level
-                                }
-                                ... on MaterializationEvent {
-                                    timestamp
-                                    message
-                                    level
-                                    stepKey
-                                    assetKey {
-                                        path
-                                    }
-                                }
-                                ... on AssetMaterializationPlannedEvent {
-                                    timestamp
-                                    message
-                                    level
-                                    stepKey
-                                    assetKey {
-                                        path
-                                    }
-                                }
-                                ... on HandledOutputEvent {
-                                    timestamp
-                                    message
-                                    level
-                                    stepKey
-                                    outputName
-                                }
-                                ... on AlertStartEvent {
-                                    timestamp
-                                    message
-                                    level
-                                }
-                                ... on AlertSuccessEvent {
-                                    timestamp
-                                    message
-                                    level
-                                }
-                                ... on AlertFailureEvent {
-                                    timestamp
-                                    message
-                                    level
-                                }
-                            }
-                            cursor
-                            hasMore
-                        }
-                        ... on RunNotFoundError {
-                            message
-                        }
-                        ... on PythonError {
-                            message
-                            stack
-                        }
-                    }
-                }
-            """)
+        query = gql(f"""
+            query GetLogsForRun($runId: ID!, $afterCursor: String, $limit: Int) {{
+                logsForRun(
+                    runId: $runId, afterCursor: $afterCursor, limit: $limit
+                ) {{
+                    ... on EventConnection {{
+                        events {{
+                            {_EVENT_INLINE_FIELDS}
+                        }}
+                        cursor
+                        hasMore
+                    }}
+                    ... on RunNotFoundError {{
+                        message
+                    }}
+                    ... on PythonError {{
+                        message
+                        stack
+                    }}
+                }}
+            }}
+        """)
 
-            variables = {
-                "runId": run_id,
-                "limit": limit,
+        variables: dict[str, Any] = {"runId": run_id, "limit": limit}
+        if cursor:
+            variables["afterCursor"] = cursor
+
+        result = self._execute(query, variables)
+        logs_data = result.get("logsForRun", {})
+
+        if "events" in logs_data:
+            return {
+                "events": logs_data["events"],
+                "cursor": logs_data.get("cursor"),
+                "hasMore": logs_data.get("hasMore", False),
             }
-            if cursor:
-                variables["afterCursor"] = cursor
-
-            result = self.gql_client.execute(query, variable_values=variables)
-            logs_data = result.get("logsForRun", {})
-
-            if "events" in logs_data:
-                return {
-                    "events": logs_data["events"],
-                    "cursor": logs_data.get("cursor"),
-                    "hasMore": logs_data.get("hasMore", False),
-                }
-            if logs_data.get("__typename") == "RunNotFoundError":
-                raise APIError(f"Run not found: {logs_data.get('message', run_id)}")
-            raise APIError(f"Failed to get logs: {logs_data}")
-
-        except Exception as e:
-            raise APIError(f"Failed to get run logs: {e}") from e
+        if logs_data.get("__typename") == "RunNotFoundError":
+            raise APIError(f"Run not found: {logs_data.get('message', run_id)}")
+        raise APIError(f"Failed to get logs: {logs_data}")
 
     def get_compute_log_urls(
         self,
@@ -796,108 +818,108 @@ class DagsterClient:
         step_key: str | None = None,
     ) -> dict[str, str | None]:
         """Get S3 URLs for stdout/stderr logs."""
-        try:
-            # Query for compute log metadata
-            query = gql("""
-                query CapturedLogsMetadata($runId: ID!, $stepKey: String) {
-                    capturedLogsMetadata(runId: $runId, stepKey: $stepKey) {
-                        stdoutDownloadUrl
-                        stderrDownloadUrl
-                    }
+        query = gql("""
+            query CapturedLogsMetadata($runId: ID!, $stepKey: String) {
+                capturedLogsMetadata(runId: $runId, stepKey: $stepKey) {
+                    stdoutDownloadUrl
+                    stderrDownloadUrl
                 }
-            """)
-
-            variables = {"runId": run_id}
-            if step_key:
-                variables["stepKey"] = step_key
-
-            result = self.gql_client.execute(query, variable_values=variables)
-            metadata = result.get("capturedLogsMetadata", {})
-
-            return {
-                "stdout_url": metadata.get("stdoutDownloadUrl"),
-                "stderr_url": metadata.get("stderrDownloadUrl"),
             }
-        except Exception:
-            # If the query is not available (e.g., not on Dagster+), return empty URLs
-            return {"stdout_url": None, "stderr_url": None}
+        """)
+
+        variables: dict[str, Any] = {"runId": run_id}
+        if step_key:
+            variables["stepKey"] = step_key
+
+        try:
+            result = self._execute(query, variables)
+        except APIError as e:
+            # Transport or auth failure — surface the error so callers can distinguish
+            # "feature not available" (None URLs) from "call failed" (error key).
+            return {"stdout_url": None, "stderr_url": None, "error": str(e)}
+
+        metadata = result.get("capturedLogsMetadata")
+        if metadata is None:
+            return {
+                "stdout_url": None,
+                "stderr_url": None,
+                "note": "capturedLogsMetadata not available (requires Dagster+)",
+            }
+        return {
+            "stdout_url": metadata.get("stdoutDownloadUrl"),
+            "stderr_url": metadata.get("stderrDownloadUrl"),
+        }
 
     def list_deployments(self) -> list[dict[str, Any]]:
         """List all available deployments in Dagster+."""
-        try:
-            query = gql("""
-                query {
-                    deployments {
-                        deploymentId
-                        deploymentName
-                        deploymentStatus
-                        deploymentType
-                        isBranchDeployment
-                        branchDeploymentGitMetadata {
-                            branchName
-                            repoName
-                            branchUrl
-                            pullRequestUrl
-                            pullRequestStatus
-                            pullRequestNumber
-                        }
+        query = gql("""
+            query {
+                deployments {
+                    deploymentId
+                    deploymentName
+                    deploymentStatus
+                    deploymentType
+                    isBranchDeployment
+                    branchDeploymentGitMetadata {
+                        branchName
+                        repoName
+                        branchUrl
+                        pullRequestUrl
+                        pullRequestStatus
+                        pullRequestNumber
                     }
                 }
-            """)
-
-            result = self.gql_client.execute(query)
-            return result.get("deployments", [])
-        except Exception as e:
-            raise APIError(f"Failed to list deployments: {e}") from e
+            }
+        """)
+        result = self._execute(query)
+        return result.get("deployments", [])
 
     def list_automations(self) -> list[dict[str, Any]]:
         """List all schedules and sensors."""
-        try:
-            query = gql("""
-                query ListAutomations {
-                    repositoriesOrError {
-                        ... on RepositoryConnection {
-                            nodes {
+        query = gql("""
+            query ListAutomations {
+                repositoriesOrError {
+                    ... on RepositoryConnection {
+                        nodes {
+                            name
+                            location {
                                 name
-                                location {
-                                    name
-                                }
-                                schedules {
-                                    name
-                                    cronSchedule
-                                    pipelineName
-                                    description
-                                    scheduleState {
+                            }
+                            schedules {
+                                name
+                                cronSchedule
+                                pipelineName
+                                description
+                                scheduleState {
+                                    status
+                                    ticks(limit: 1) {
+                                        timestamp
+                                        runIds
                                         status
-                                        ticks(limit: 1) {
-                                            timestamp
-                                            runIds
+                                        runs {
+                                            id
                                             status
-                                            runs {
-                                                id
-                                                status
-                                                startTime
-                                            }
+                                            startTime
                                         }
                                     }
                                 }
-                                sensors {
-                                    name
-                                    targets {
-                                        pipelineName
-                                    }
-                                    description
-                                    sensorState {
+                            }
+                            sensors {
+                                name
+                                targets {
+                                    pipelineName
+                                }
+                                description
+                                sensorState {
+                                    status
+                                    ticks(limit: 1) {
+                                        timestamp
+                                        runIds
                                         status
-                                        ticks(limit: 1) {
-                                            timestamp
-                                            runIds
+                                        runs {
+                                            id
                                             status
-                                            runs {
-                                                id
-                                                status
-                                                startTime
-                                            }
+                                            startTime
                                         }
                                     }
                                 }
@@ -905,361 +927,154 @@ class DagsterClient:
                         }
                     }
                 }
-            """)
+            }
+        """)
 
-            result = self.gql_client.execute(query)
-            automations = []
+        result = self._execute(query)
+        automations = []
 
-            if "repositoriesOrError" in result:
-                repositories = result["repositoriesOrError"].get("nodes", [])
-                for repo in repositories:
-                    location_name = repo.get("location", {}).get("name", "")
-                    repo_name = repo.get("name", "")
+        for repo, location_name in _iter_repositories(result):
+            repo_name = repo.get("name", "")
 
-                    # Add schedules
-                    for schedule in repo.get("schedules", []):
-                        last_tick = None
-                        last_run_status = None
-                        last_run_timestamp = None
-                        tick_status = None
-                        tick_run_count = 0
+            for schedule in repo.get("schedules", []):
+                tick_data = _parse_tick_summary(schedule.get("scheduleState", {}))
+                automations.append(
+                    {
+                        "name": schedule["name"],
+                        "type": "Schedule",
+                        "target": schedule.get("pipelineName", ""),
+                        "description": schedule.get("description", ""),
+                        "status": schedule.get("scheduleState", {}).get(
+                            "status", "STOPPED"
+                        ),
+                        "cron_schedule": schedule.get("cronSchedule", ""),
+                        "location": location_name,
+                        "repository": repo_name,
+                        **tick_data,
+                    }
+                )
 
-                        if schedule.get("scheduleState", {}).get("ticks"):
-                            tick = schedule["scheduleState"]["ticks"][0]
-                            last_tick = tick.get("timestamp")
-                            tick_status = tick.get("status", "SKIPPED")
+            for sensor in repo.get("sensors", []):
+                tick_data = _parse_tick_summary(sensor.get("sensorState", {}))
+                targets = sensor.get("targets", [])
+                target = targets[0].get("pipelineName", "") if targets else ""
+                automations.append(
+                    {
+                        "name": sensor["name"],
+                        "type": "Sensor",
+                        "target": target,
+                        "description": sensor.get("description", ""),
+                        "status": sensor.get("sensorState", {}).get(
+                            "status", "STOPPED"
+                        ),
+                        "cron_schedule": None,
+                        "location": location_name,
+                        "repository": repo_name,
+                        **tick_data,
+                    }
+                )
 
-                            # Get status and timestamp of the last run if any
-                            runs = tick.get("runs", [])
-                            run_ids = tick.get("runIds", [])
-                            tick_run_count = len(run_ids)
-
-                            if runs:
-                                # Use the status and time of the first (most recent) run
-                                last_run_status = runs[0].get("status", "UNKNOWN")
-                                last_run_timestamp = runs[0].get("startTime")
-                            elif run_ids:
-                                # If we have runIds but no run data, mark as unknown
-                                last_run_status = "UNKNOWN"
-                            elif tick_status == "SKIPPED":
-                                # If the tick was skipped, show that
-                                last_run_status = "SKIPPED"
-
-                        automations.append(
-                            {
-                                "name": schedule["name"],
-                                "type": "Schedule",
-                                "target": schedule.get("pipelineName", ""),
-                                "description": schedule.get("description", ""),
-                                "status": (
-                                    schedule.get("scheduleState", {}).get(
-                                        "status",
-                                        "STOPPED",
-                                    )
-                                ),
-                                "cron_schedule": schedule.get("cronSchedule", ""),
-                                "last_tick": last_tick,
-                                "last_run_status": last_run_status,
-                                "last_run_timestamp": last_run_timestamp,
-                                "tick_status": tick_status,
-                                "tick_run_count": tick_run_count,
-                                "location": location_name,
-                                "repository": repo_name,
-                            },
-                        )
-
-                    # Add sensors
-                    for sensor in repo.get("sensors", []):
-                        last_tick = None
-                        last_run_status = None
-                        last_run_timestamp = None
-                        tick_status = None
-                        tick_run_count = 0
-
-                        if sensor.get("sensorState", {}).get("ticks"):
-                            tick = sensor["sensorState"]["ticks"][0]
-                            last_tick = tick.get("timestamp")
-                            tick_status = tick.get("status", "SKIPPED")
-
-                            # Get status and timestamp of the last run if any
-                            runs = tick.get("runs", [])
-                            run_ids = tick.get("runIds", [])
-                            tick_run_count = len(run_ids)
-
-                            if runs:
-                                # Use the status and time of the first (most recent) run
-                                last_run_status = runs[0].get("status", "UNKNOWN")
-                                last_run_timestamp = runs[0].get("startTime")
-                            elif run_ids:
-                                # If we have runIds but no run data, mark as unknown
-                                last_run_status = "UNKNOWN"
-                            elif tick_status == "SKIPPED":
-                                # If the tick was skipped, show that
-                                last_run_status = "SKIPPED"
-
-                        # Get target from targets array
-                        targets = sensor.get("targets", [])
-                        target = targets[0].get("pipelineName", "") if targets else ""
-
-                        automations.append(
-                            {
-                                "name": sensor["name"],
-                                "type": "Sensor",
-                                "target": target,
-                                "description": sensor.get("description", ""),
-                                "status": (
-                                    sensor.get("sensorState", {}).get(
-                                        "status",
-                                        "STOPPED",
-                                    )
-                                ),
-                                "cron_schedule": None,
-                                "last_tick": last_tick,
-                                "last_run_status": last_run_status,
-                                "last_run_timestamp": last_run_timestamp,
-                                "tick_status": tick_status,
-                                "tick_run_count": tick_run_count,
-                                "location": location_name,
-                                "repository": repo_name,
-                            },
-                        )
-
-            # Sort automations by name
-            return sorted(automations, key=lambda x: x["name"])
-        except Exception as e:
-            raise APIError(f"Failed to list automations: {e}") from e
+        return sorted(automations, key=lambda x: x["name"])
 
     def get_automation_details(self, name: str) -> dict[str, Any] | None:
-        """Get detailed information about a specific automation."""
-        try:
-            # First try to find if it's a schedule
-            schedule_query = gql("""
-                query GetScheduleDetails {
-                    repositoriesOrError {
-                        ... on RepositoryConnection {
-                            nodes {
+        """Get detailed information about a specific automation (schedule or sensor)."""
+        query = gql("""
+            query GetAutomationDetails {
+                repositoriesOrError {
+                    ... on RepositoryConnection {
+                        nodes {
+                            name
+                            location { name }
+                            schedules {
                                 name
-                                location {
-                                    name
+                                cronSchedule
+                                pipelineName
+                                description
+                                executionTimezone
+                                scheduleState {
+                                    status
+                                    ticks(limit: 10) {
+                                        timestamp runIds status
+                                        error { message }
+                                        runs { id status startTime endTime }
+                                    }
                                 }
-                                schedules {
-                                    name
-                                    cronSchedule
-                                    pipelineName
-                                    description
-                                    executionTimezone
-                                    scheduleState {
-                                        status
-                                        ticks(limit: 10) {
-                                            timestamp
-                                            runIds
-                                            status
-                                            error {
-                                                message
-                                            }
-                                            runs {
-                                                id
-                                                status
-                                                startTime
-                                            }
-                                        }
+                            }
+                            sensors {
+                                name
+                                targets { pipelineName }
+                                description
+                                minIntervalSeconds
+                                sensorState {
+                                    status
+                                    ticks(limit: 10) {
+                                        timestamp runIds status
+                                        error { message }
+                                        runs { id status startTime endTime }
                                     }
                                 }
                             }
                         }
                     }
                 }
-            """)
+            }
+        """)
 
-            result = self.gql_client.execute(schedule_query)
-
-            if "repositoriesOrError" in result:
-                repositories = result["repositoriesOrError"].get("nodes", [])
-                for repo in repositories:
-                    for schedule in repo.get("schedules", []):
-                        if schedule["name"] == name:
-                            return {
-                                "name": schedule["name"],
-                                "type": "Schedule",
-                                "target": schedule.get("pipelineName", ""),
-                                "description": schedule.get("description", ""),
-                                "cron_schedule": schedule.get("cronSchedule", ""),
-                                "execution_timezone": (
-                                    schedule.get("executionTimezone", "")
-                                ),
-                                "status": (
-                                    schedule.get("scheduleState", {}).get(
-                                        "status",
-                                        "STOPPED",
-                                    )
-                                ),
-                                "recent_ticks": (
-                                    schedule.get("scheduleState", {}).get("ticks", [])
-                                ),
-                                "location": repo.get("location", {}).get("name", ""),
-                                "repository": repo.get("name", ""),
-                            }
-
-            # If not found as schedule, try sensor
-            sensor_query = gql("""
-                query GetSensorDetails {
-                    repositoriesOrError {
-                        ... on RepositoryConnection {
-                            nodes {
-                                name
-                                location {
-                                    name
-                                }
-                                sensors {
-                                    name
-                                    targets {
-                                        pipelineName
-                                    }
-                                    description
-                                    minIntervalSeconds
-                                    sensorState {
-                                        status
-                                        ticks(limit: 10) {
-                                            timestamp
-                                            runIds
-                                            status
-                                            error {
-                                                message
-                                            }
-                                            runs {
-                                                id
-                                                status
-                                                startTime
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            """)
-
-            result = self.gql_client.execute(sensor_query)
-
-            if "repositoriesOrError" in result:
-                repositories = result["repositoriesOrError"].get("nodes", [])
-                for repo in repositories:
-                    for sensor in repo.get("sensors", []):
-                        if sensor["name"] == name:
-                            targets = sensor.get("targets", [])
-                            target = (
-                                targets[0].get("pipelineName", "") if targets else ""
-                            )
-
-                            return {
-                                "name": sensor["name"],
-                                "type": "Sensor",
-                                "target": target,
-                                "description": sensor.get("description", ""),
-                                "min_interval_seconds": (
-                                    sensor.get("minIntervalSeconds")
-                                ),
-                                "status": (
-                                    sensor.get("sensorState", {}).get(
-                                        "status",
-                                        "STOPPED",
-                                    )
-                                ),
-                                "recent_ticks": (
-                                    sensor.get("sensorState", {}).get("ticks", [])
-                                ),
-                                "location": repo.get("location", {}).get("name", ""),
-                                "repository": repo.get("name", ""),
-                            }
-
-            return None
-        except Exception as e:
-            raise APIError(f"Failed to get automation details: {e}") from e
+        result = self._execute(query)
+        for repo, location_name in _iter_repositories(result):
+            repo_name = repo.get("name", "")
+            for schedule in repo.get("schedules", []):
+                if schedule["name"] == name:
+                    return _build_automation_detail(
+                        schedule, "Schedule", location_name, repo_name
+                    )
+            for sensor in repo.get("sensors", []):
+                if sensor["name"] == name:
+                    return _build_automation_detail(
+                        sensor, "Sensor", location_name, repo_name
+                    )
+        return None
 
     def get_automation_runs(self, name: str, limit: int = 10) -> list[dict[str, Any]]:
         """Get runs triggered by an automation."""
-        try:
-            # Get automation details to find its ticks with run IDs
-            automation = self.get_automation_details(name)
-            if not automation:
-                raise APIError(f"Automation '{name}' not found")
+        automation = self.get_automation_details(name)
+        if not automation:
+            raise APIError(f"Automation '{name}' not found")
 
-            # Collect all runs from recent ticks
-            all_runs = []
-            for tick in automation.get("recent_ticks", []):
-                if tick_runs := tick.get("runs", []):
-                    # Add basic run info from tick data
-                    all_runs.extend(
-                        {
-                            "id": run["id"],
-                            "status": run["status"],
-                            "pipeline": {"name": automation["target"]},
-                            # We'll need to fetch full details for timestamps
-                        }
-                        for run in tick_runs
-                    )
-                elif tick.get("runIds"):
-                    # Fallback: if we only have run IDs, fetch full details
-                    for run_id in tick.get("runIds", []):
-                        if run := self.get_run_status(run_id):
-                            all_runs.append(run)  # noqa: PERF401
+        all_runs: list[dict] = []
+        for tick in automation.get("recent_ticks", []):
+            if tick_runs := tick.get("runs", []):
+                all_runs.extend(
+                    {
+                        "id": run["id"],
+                        "status": run["status"],
+                        "startTime": run.get("startTime"),
+                        "endTime": run.get("endTime"),
+                        "pipeline": {"name": automation["target"]},
+                    }
+                    for run in tick_runs
+                )
+            elif tick.get("runIds"):
+                for run_id in tick.get("runIds", []):
+                    if run := self.get_run_status(run_id):
+                        all_runs.append(run)  # noqa: PERF401
 
-            # Limit the results
-            all_runs = all_runs[:limit]
-
-            # For runs that only have basic info, fetch full details
-            for i, run in enumerate(all_runs):
-                if (
-                    "startTime" not in run
-                    and run.get("id")
-                    and (full_run := self.get_run_status(run["id"]))
-                ):
-                    all_runs[i] = full_run
-
-            return all_runs
-        except Exception as e:
-            raise APIError(f"Failed to get automation runs: {e}") from e
+        return all_runs[:limit]
 
     def get_automation_ticks(self, name: str, limit: int = 20) -> list[dict[str, Any]]:
         """Get tick history for an automation."""
-        try:
-            if automation := self.get_automation_details(name):
-                return [
-                    {
-                        "timestamp": tick.get("timestamp"),
-                        "status": tick.get("status", "SKIPPED"),
-                        "run_count": len(tick.get("runIds", [])),
-                        "run_ids": tick.get("runIds", []),
-                        "error": (
-                            tick.get("error", {}).get("message")
-                            if tick.get("error")
-                            else None
-                        ),
-                    }
-                    for tick in automation.get("recent_ticks", [])[:limit]
-                ]
+        automation = self.get_automation_details(name)
+        if not automation:
             raise APIError(f"Automation '{name}' not found")
-
-        except Exception as e:
-            raise APIError(f"Failed to get automation ticks: {e}") from e
-
-    @staticmethod
-    def format_timestamp(timestamp: float | None) -> str:
-        """Format Unix timestamp to readable datetime."""
-        if not timestamp:
-            return "N/A"
-
-        # Convert string to float if needed
-        if isinstance(timestamp, str):
-            try:
-                timestamp = float(timestamp)
-            except ValueError:
-                return "N/A"
-
-        # Check if timestamp is in seconds or milliseconds
-        if timestamp < 10000000000:
-            dt = datetime.fromtimestamp(timestamp, tz=timezone.utc)
-        else:
-            dt = datetime.fromtimestamp(timestamp / 1000, tz=timezone.utc)
-        return dt.strftime(DATETIME_FORMAT)
+        return [
+            {
+                "timestamp": tick.get("timestamp"),
+                "status": tick.get("status", "SKIPPED"),
+                "run_count": len(tick.get("runIds", [])),
+                "run_ids": tick.get("runIds", []),
+                "error": (
+                    tick.get("error", {}).get("message") if tick.get("error") else None
+                ),
+            }
+            for tick in automation.get("recent_ticks", [])[:limit]
+        ]

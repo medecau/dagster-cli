@@ -1,9 +1,8 @@
 """MCP (Model Context Protocol) command for exposing Dagster+ functionality."""
 
-from typing import Optional
-
 import typer
 
+from dagster_cli.client import DagsterClient
 from dagster_cli.utils.output import console, print_error, print_info
 from dagster_cli.utils.tldr import print_tldr
 
@@ -36,7 +35,6 @@ def mcp_callback(
         print_tldr("mcp")
         raise typer.Exit()
 
-    # If no command was provided, show help
     if ctx.invoked_subcommand is None:
         console.print(ctx.get_help())
         raise typer.Exit()
@@ -82,20 +80,9 @@ def start(
     default values (127.0.0.1:8000/mcp/).
     """
     try:
-        # Validate authentication early - fail fast
-        from dagster_cli.config import Config
-
-        config = Config()
-        profile_data = config.get_profile(profile)
-
-        if not profile_data.get("url") or not profile_data.get("token"):
-            raise Exception(
-                "No authentication found. Please run 'dgc auth login' first.",
-            )
-
-        # Show startup message
+        client = DagsterClient(profile)
         print_info(f"Starting MCP server in {'HTTP' if http else 'stdio'} mode...")
-        print_info(f"Connected to: {profile_data.get('url', 'Unknown')}")
+        print_info(f"Connected to: {client.profile.get('url', 'Unknown')}")
 
         if http:
             start_http_server(profile, host, port, path)
@@ -111,10 +98,7 @@ def start_stdio_server(profile_name: str | None):
     """Start MCP server in stdio mode."""
     from dagster_cli.mcp_server import create_mcp_server
 
-    # Create the MCP server with all tools/resources
     server = create_mcp_server(profile_name)
-
-    # Run the FastMCP server using its built-in stdio transport
     server.run("stdio")
 
 
@@ -127,13 +111,7 @@ def start_http_server(
     """Start MCP server in HTTP mode using streamable-http transport."""
     from dagster_cli.mcp_server import create_mcp_server
 
-    # Create the MCP server with all tools/resources
     server = create_mcp_server(profile_name)
-
-    # Run the FastMCP server using streamable-http transport
     print_info(f"Starting HTTP server on http://{host}:{port}")
     print_info(f"MCP endpoint: http://{host}:{port}{path}")
-
-    # Note: FastMCP doesn't support host/port/path in run() signature in our version
-    # We'll use the default for now and document this limitation
     server.run("streamable-http")

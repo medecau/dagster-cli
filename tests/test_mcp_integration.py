@@ -87,8 +87,11 @@ async def test_run_job_tool():
         mock_client.profile = {"url": "myorg.dagster.cloud/prod", "token": "test_token"}
         mock_client.deployment = "prod"
 
-        # Mock submit_job_run response
+        # Mock submit_job_run and run_url responses
         mock_client.submit_job_run.return_value = "run_abc123"
+        mock_client.run_url.return_value = (
+            "https://myorg.dagster.cloud/prod/runs/run_abc123"
+        )
 
         server = create_mcp_server("test_profile")
 
@@ -98,7 +101,7 @@ async def test_run_job_tool():
             "run_job",
             {
                 "job_name": "daily_etl",
-                "config": {"ops": {"my_op": {"config": {"key": "value"}}}},
+                "run_config": {"ops": {"my_op": {"config": {"key": "value"}}}},
             },
         )
 
@@ -127,8 +130,11 @@ async def test_run_job_tool_with_deployment():
         mock_client.profile = {"url": "myorg.dagster.cloud/prod", "token": "test_token"}
         mock_client.deployment = "fix/azure-auth"
 
-        # Mock submit_job_run response
+        # Mock submit_job_run and run_url responses
         mock_client.submit_job_run.return_value = "run_xyz789"
+        mock_client.run_url.return_value = (
+            "https://myorg.dagster.cloud/fix/azure-auth/runs/run_xyz789"
+        )
 
         server = create_mcp_server("test_profile")
 
