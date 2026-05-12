@@ -1,7 +1,10 @@
 """Test utilities."""
 
-from unittest.mock import MagicMock
+import pytest
+from unittest.mock import MagicMock, patch
 
+from dagster_cli.client import _split_url_for_dagster_client, DagsterClient
+from dagster_cli.utils.errors import APIError
 from dagster_cli.utils.run_utils import resolve_run_id
 
 
@@ -90,3 +93,131 @@ class TestResolveRunId:
         assert error is None
         assert matches is None
         client.get_recent_runs.assert_not_called()
+
+
+class TestSplitUrlForDagsterClient:
+    def test_https_url_with_deployment_path(self):
+        assert _split_url_for_dagster_client("https://myorg.dagster.cloud/prod") == (
+            "myorg.dagster.cloud/prod",
+            True,
+        )
+
+    def test_http_localhost_with_port(self):
+        assert _split_url_for_dagster_client("http://localhost:3000") == (
+            "localhost:3000",
+            False,
+        )
+
+    def test_bare_hostname_assumes_https(self):
+        assert _split_url_for_dagster_client("myorg.dagster.cloud") == (
+            "myorg.dagster.cloud",
+            True,
+        )
+
+    def test_bare_hostname_with_path(self):
+        assert _split_url_for_dagster_client("myorg.dagster.cloud/prod") == (
+            "myorg.dagster.cloud/prod",
+            True,
+        )
+
+    def test_trailing_slash_stripped(self):
+        assert _split_url_for_dagster_client("https://myorg.dagster.cloud/prod/") == (
+            "myorg.dagster.cloud/prod",
+            True,
+        )
+
+
+_FAKE_PROFILE = {
+    "url": "https://myorg.dagster.cloud/prod",
+    "token": "test-token",
+    "location": "my_location",
+    "repository": "__repository__",
+}
+
+
+@pytest.fixture
+def client_with_mock_gql():
+    """DagsterClient with Config and gql_client mocked out."""
+    with patch("dagster_cli.client.Config") as mock_config:
+        mock_config.return_value.get_profile.return_value = _FAKE_PROFILE
+        client = DagsterClient()
+        mock_execute = MagicMock()
+        client._gql_client = MagicMock()
+        client._gql_client.execute = mock_execute
+        yield client, mock_execute
+
+
+class TestMaterializeAsset:
+    def test_simple_key_produces_single_path_component(self, client_with_mock_gql):
+        client, mock_execute = client_with_mock_gql
+        mock_execute.return_value = {
+            "launchPipelineExecution": {
+                "__typename": "LaunchRunSuccess",
+                "run": {"runId": "run-123"},
+            }
+        }
+
+        run_id = client.materialize_asset("my_asset")
+
+        assert run_id == "run-123"
+        _, kwargs = mock_execute.call_args
+        selector = kwargs["variable_values"]["executionParams"]["selector"]
+        assert selector["assetSelection"] == [{"path": ["my_asset"]}]
+
+    def test_slashed_key_produces_multi_component_path(self, client_with_mock_gql):
+        client, mock_execute = client_with_mock_gql
+        mock_execute.return_value = {
+            "launchPipelineExecution": {
+                "__typename": "LaunchRunSuccess",
+                "run": {"runId": "run-456"},
+            }
+        }
+
+        run_id = client.materialize_asset("prefix/my_asset")
+
+        assert run_id == "run-456"
+        _, kwargs = mock_execute.call_args
+        selector = kwargs["variable_values"]["executionParams"]["selector"]
+        assert selector["assetSelection"] == [{"path": ["prefix", "my_asset"]}]
+
+    def test_partition_key_becomes_dagster_partition_tag(self, client_with_mock_gql):
+        client, mock_execute = client_with_mock_gql
+        mock_execute.return_value = {
+            "launchPipelineExecution": {
+                "__typename": "LaunchRunSuccess",
+                "run": {"runId": "run-789"},
+            }
+        }
+
+        client.materialize_asset("my_asset", partition_key="2024-01-01")
+
+        _, kwargs = mock_execute.call_args
+        tags = kwargs["variable_values"]["executionParams"]["executionMetadata"]["tags"]
+        assert {"key": "dagster/partition", "value": "2024-01-01"} in tags
+
+    def test_no_partition_key_sends_empty_tags(self, client_with_mock_gql):
+        client, mock_execute = client_with_mock_gql
+        mock_execute.return_value = {
+            "launchPipelineExecution": {
+                "__typename": "LaunchRunSuccess",
+                "run": {"runId": "run-000"},
+            }
+        }
+
+        client.materialize_asset("my_asset")
+
+        _, kwargs = mock_execute.call_args
+        tags = kwargs["variable_values"]["executionParams"]["executionMetadata"]["tags"]
+        assert tags == []
+
+    def test_non_success_typename_raises_api_error(self, client_with_mock_gql):
+        client, mock_execute = client_with_mock_gql
+        mock_execute.return_value = {
+            "launchPipelineExecution": {
+                "__typename": "PipelineNotFoundError",
+                "message": "pipeline not found",
+            }
+        }
+
+        with pytest.raises(APIError, match="PipelineNotFoundError"):
+            client.materialize_asset("my_asset")

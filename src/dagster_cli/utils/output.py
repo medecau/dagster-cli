@@ -230,9 +230,7 @@ def print_automations_table(automations: List[Dict[str, Any]]) -> None:
 
         # Format last run - show colored timestamp based on status
         last_run_status = automation.get("last_run_status", "—")
-        last_run_timestamp = automation.get("last_run_timestamp")
-
-        if last_run_timestamp:
+        if last_run_timestamp := automation.get("last_run_timestamp"):
             formatted_time = DagsterClient.format_timestamp(last_run_timestamp)
             if last_run_status == "SUCCESS":
                 last_run_display = f"[green]{formatted_time}[/green]"
@@ -293,12 +291,10 @@ def print_automation_details(automation: Dict[str, Any]) -> None:
     if automation.get("description"):
         content += f"\n[cyan]Description:[/cyan] {automation['description']}"
 
-    # Add recent tick summary
-    recent_ticks = automation.get("recent_ticks", [])
-    if recent_ticks:
-        success_count = sum(1 for t in recent_ticks if t.get("status") == "SUCCESS")
-        failure_count = sum(1 for t in recent_ticks if t.get("status") == "FAILURE")
-        skip_count = sum(1 for t in recent_ticks if t.get("status") == "SKIPPED")
+    if recent_ticks := automation.get("recent_ticks", []):
+        success_count = sum(t.get("status") == "SUCCESS" for t in recent_ticks)
+        failure_count = sum(t.get("status") == "FAILURE" for t in recent_ticks)
+        skip_count = sum(t.get("status") == "SKIPPED" for t in recent_ticks)
 
         content += "\n\n[cyan]Recent Activity:[/cyan]"
         content += f"\n  Last {len(recent_ticks)} ticks: {success_count} success, {failure_count} failed, {skip_count} skipped"
@@ -321,12 +317,12 @@ def print_automation_ticks_table(ticks: List[Dict[str, Any]]) -> None:
         status = tick.get("status", "SKIPPED")
 
         # Color code status
-        if status == "SUCCESS":
-            status_display = f"[green]{status}[/green]"
-        elif status == "FAILURE":
+        if status == "FAILURE":
             status_display = f"[red]{status}[/red]"
         elif status == "SKIPPED":
             status_display = f"[dim]{status}[/dim]"
+        elif status == "SUCCESS":
+            status_display = f"[green]{status}[/green]"
         else:
             status_display = status
 
@@ -337,7 +333,7 @@ def print_automation_ticks_table(ticks: List[Dict[str, Any]]) -> None:
 
         error = tick.get("error", "")
         if error and len(error) > 50:
-            error = error[:47] + "..."
+            error = f"{error[:47]}..."
 
         table.add_row(timestamp, status_display, run_display, error or "—")
 

@@ -12,6 +12,27 @@ from dagster_cli.config import Config
 from dagster_cli.constants import DATETIME_FORMAT, DEFAULT_TIMEOUT
 from dagster_cli.utils.errors import APIError, AuthenticationError
 
+_LAUNCH_ASSET_RUN_MUTATION = gql("""
+    mutation LaunchAssetRun($executionParams: ExecutionParams!) {
+        launchPipelineExecution(executionParams: $executionParams) {
+            __typename
+            ... on LaunchRunSuccess {
+                run { runId }
+            }
+            ... on PipelineConfigValidationInvalid {
+                errors { message }
+            }
+            ... on PipelineNotFoundError { message }
+            ... on InvalidStepError { invalidStepKey }
+            ... on InvalidOutputError { stepKey invalidOutputName }
+            ... on ConflictingExecutionParamsError { message }
+            ... on PresetNotFoundError { message }
+            ... on PythonError { message }
+            ... on UnauthorizedError { message }
+        }
+    }
+""")
+
 
 def _split_url_for_dagster_client(url: str) -> tuple[str, bool]:
     """Split a Dagster URL into the (hostname, use_https) pair expected by
@@ -29,7 +50,8 @@ def _split_url_for_dagster_client(url: str) -> tuple[str, bool]:
     """
     parsed = urlparse(url if "://" in url else f"https://{url}")
     host_with_path = (parsed.netloc + parsed.path).rstrip("/")
-    use_https = parsed.scheme != "http"
+    # treat missing scheme (bare hostname) the same as explicit https
+    use_https = parsed.scheme in ("https", "")
     return host_with_path, use_https
 
 
@@ -510,29 +532,36 @@ class DagsterClient:
         self, asset_key: str, partition_key: Optional[str] = None
     ) -> str:
         """Trigger materialization of an asset."""
+        asset_key_path = asset_key.split("/")
+        tags = (
+            [{"key": "dagster/partition", "value": partition_key}]
+            if partition_key
+            else []
+        )
+        execution_params = {
+            "selector": {
+                "repositoryLocationName": self.profile.get("location"),
+                "repositoryName": self.profile.get("repository"),
+                "pipelineName": "__ASSET_JOB",
+                "assetSelection": [{"path": asset_key_path}],
+            },
+            "mode": "default",
+            "runConfigData": "{}",
+            "executionMetadata": {"tags": tags},
+        }
         try:
-            # Use __ASSET_JOB (the default asset job) plus an explicit
-            # asset_selection — the asset key belongs on the execution-params
-            # selector, not in runConfigData.
-            job_name = "__ASSET_JOB"
-
-            # Asset keys with slashes are multi-component paths
-            # (e.g. "staging/stg_x" -> ["staging", "stg_x"]).
-            asset_key_path = asset_key.split("/") if "/" in asset_key else asset_key
-
-            tags = None
-            if partition_key:
-                tags = {"dagster/partition": partition_key}
-
-            return self.dagster_client.submit_job_execution(
-                job_name,
-                repository_location_name=self.profile.get("location"),
-                repository_name=self.profile.get("repository"),
-                asset_selection=[asset_key_path],
-                tags=tags,
+            result = self.gql_client.execute(
+                _LAUNCH_ASSET_RUN_MUTATION,
+                variable_values={"executionParams": execution_params},
             )
-        except DagsterGraphQLClientError as e:
+        except Exception as e:
             raise APIError(f"Failed to materialize asset: {e}") from e
+
+        payload = result.get("launchPipelineExecution", {})
+        typename = payload.get("__typename")
+        if typename in ("LaunchRunSuccess", "LaunchPipelineRunSuccess"):
+            return payload["run"]["runId"]
+        raise APIError(f"Failed to materialize asset ({typename}): {payload}")
 
     def get_asset_health(self, group: Optional[str] = None) -> List[Dict[str, Any]]:
         """Get assets with their latest materialization status for health checks."""
@@ -1140,24 +1169,21 @@ class DagsterClient:
             # Collect all runs from recent ticks
             all_runs = []
             for tick in automation.get("recent_ticks", []):
-                # If we have run data in the tick, use it
-                tick_runs = tick.get("runs", [])
-                if tick_runs:
+                if tick_runs := tick.get("runs", []):
                     # Add basic run info from tick data
-                    for run in tick_runs:
-                        all_runs.append(
-                            {
-                                "id": run["id"],
-                                "status": run["status"],
-                                "pipeline": {"name": automation["target"]},
-                                # We'll need to fetch full details for timestamps
-                            }
-                        )
+                    all_runs.extend(
+                        {
+                            "id": run["id"],
+                            "status": run["status"],
+                            "pipeline": {"name": automation["target"]},
+                            # We'll need to fetch full details for timestamps
+                        }
+                        for run in tick_runs
+                    )
                 elif tick.get("runIds"):
                     # Fallback: if we only have run IDs, fetch full details
                     for run_id in tick.get("runIds", []):
-                        run = self.get_run_status(run_id)
-                        if run:
+                        if run := self.get_run_status(run_id):
                             all_runs.append(run)
 
             # Limit the results
@@ -1166,8 +1192,7 @@ class DagsterClient:
             # For runs that only have basic info, fetch full details
             for i, run in enumerate(all_runs):
                 if "startTime" not in run and run.get("id"):
-                    full_run = self.get_run_status(run["id"])
-                    if full_run:
+                    if full_run := self.get_run_status(run["id"]):
                         all_runs[i] = full_run
 
             return all_runs
@@ -1177,14 +1202,8 @@ class DagsterClient:
     def get_automation_ticks(self, name: str, limit: int = 20) -> List[Dict[str, Any]]:
         """Get tick history for an automation."""
         try:
-            # Get automation details which includes recent ticks
-            automation = self.get_automation_details(name)
-            if not automation:
-                raise APIError(f"Automation '{name}' not found")
-
-            ticks = []
-            for tick in automation.get("recent_ticks", [])[:limit]:
-                ticks.append(
+            if automation := self.get_automation_details(name):
+                return [
                     {
                         "timestamp": tick.get("timestamp"),
                         "status": tick.get("status", "SKIPPED"),
@@ -1196,9 +1215,11 @@ class DagsterClient:
                             else None
                         ),
                     }
-                )
+                    for tick in automation.get("recent_ticks", [])[:limit]
+                ]
+            else:
+                raise APIError(f"Automation '{name}' not found")
 
-            return ticks
         except Exception as e:
             raise APIError(f"Failed to get automation ticks: {e}") from e
 
