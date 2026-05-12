@@ -1,6 +1,7 @@
 """Test version information."""
 
 import re
+
 from dagster_cli import __version__
 
 

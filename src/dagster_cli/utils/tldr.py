@@ -1,14 +1,14 @@
 """TLDR content for dgc commands."""
 
-from typing import Dict
-
 # TLDR content for each command
-TLDR_CONTENT: Dict[str, str] = {
-    "main": """[bold magenta]dgc[/bold magenta]
+REPO_URL = "https://github.com/medecau/dagster-cli"
+MORE_INFO = f"More information: [red italic]{REPO_URL}[/red italic][/magenta]"
+TLDR_CONTENT: dict[str, str] = {
+    "main": f"""[bold magenta]dgc[/bold magenta]
 
   [magenta]Dagster CLI - Command-line interface for Dagster+ operations.
   Similar to GitHub's 'gh' CLI, but for managing Dagster+ deployments.
-  More information: [red italic]https://github.com/pedramamani/dagster-cli[/red italic][/magenta]
+  {MORE_INFO}
 
   [green]Authenticate with your Dagster+ deployment:[/green]
 
@@ -29,10 +29,10 @@ TLDR_CONTENT: Dict[str, str] = {
   [green]List recent runs to find failures:[/green]
 
     [cyan]dgc run list --limit 10[/cyan]""",
-    "auth": """[bold magenta]dgc auth[/bold magenta]
+    "auth": f"""[bold magenta]dgc auth[/bold magenta]
 
   [magenta]Authentication management for Dagster+ deployments.
-  More information: [red italic]https://github.com/pedramamani/dagster-cli#authentication[/red italic][/magenta]
+  {MORE_INFO}
 
   [green]Login to a Dagster+ deployment:[/green]
 
@@ -45,10 +45,10 @@ TLDR_CONTENT: Dict[str, str] = {
   [green]Switch to a different profile:[/green]
 
     [cyan]dgc auth switch production[/cyan]""",
-    "job": """[bold magenta]dgc job[/bold magenta]
+    "job": f"""[bold magenta]dgc job[/bold magenta]
 
   [magenta]Manage Dagster jobs - list, view details, and run jobs.
-  More information: [red italic]https://github.com/pedramamani/dagster-cli#job-operations[/red italic][/magenta]
+  {MORE_INFO}
 
   [green]List all available jobs:[/green]
 
@@ -61,10 +61,10 @@ TLDR_CONTENT: Dict[str, str] = {
   [green]Run a job with configuration file:[/green]
 
     [cyan]dgc job run etl_pipeline --config-file config.json[/cyan]""",
-    "run": """[bold magenta]dgc run[/bold magenta]
+    "run": f"""[bold magenta]dgc run[/bold magenta]
 
   [magenta]Monitor and manage Dagster run executions.
-  More information: [red italic]https://github.com/pedramamani/dagster-cli#run-management[/red italic][/magenta]
+  {MORE_INFO}
 
   [green]List recent runs:[/green]
 
@@ -77,10 +77,10 @@ TLDR_CONTENT: Dict[str, str] = {
   [green]View Python stack trace for a failed run:[/green]
 
     [cyan]dgc run logs abc123 --stderr[/cyan]""",
-    "asset": """[bold magenta]dgc asset[/bold magenta]
+    "asset": f"""[bold magenta]dgc asset[/bold magenta]
 
   [magenta]Manage Dagster assets - list, materialize, and check health.
-  More information: [red italic]https://github.com/pedramamani/dagster-cli#asset-operations[/red italic][/magenta]
+  {MORE_INFO}
 
   [green]Check health status of all assets:[/green]
 
@@ -97,10 +97,10 @@ TLDR_CONTENT: Dict[str, str] = {
   [green]Materialize an asset:[/green]
 
     [cyan]dgc asset materialize analytics/daily_revenue[/cyan]""",
-    "repo": """[bold magenta]dgc repo[/bold magenta]
+    "repo": f"""[bold magenta]dgc repo[/bold magenta]
 
   [magenta]Repository management - list locations and reload code.
-  More information: [red italic]https://github.com/pedramamani/dagster-cli#repository-management[/red italic][/magenta]
+  {MORE_INFO}
 
   [green]List all repository locations:[/green]
 
@@ -109,18 +109,18 @@ TLDR_CONTENT: Dict[str, str] = {
   [green]Reload a repository location:[/green]
 
     [cyan]dgc repo reload data_etl[/cyan]""",
-    "deployment": """[bold magenta]dgc deployment[/bold magenta]
+    "deployment": f"""[bold magenta]dgc deployment[/bold magenta]
 
   [magenta]Manage Dagster+ deployments including branch deployments.
-  More information: [red italic]https://github.com/pedramamani/dagster-cli#deployment-management[/red italic][/magenta]
+  {MORE_INFO}
 
   [green]List all available deployments:[/green]
 
     [cyan]dgc deployment list[/cyan]""",
-    "mcp": """[bold magenta]dgc mcp[/bold magenta]
+    "mcp": f"""[bold magenta]dgc mcp[/bold magenta]
 
   [magenta]Model Context Protocol server for AI assistant integration.
-  More information: [red italic]https://github.com/pedramamani/dagster-cli#mcp-operations[/red italic][/magenta]
+  {MORE_INFO}
 
   [green]Start MCP server (stdio mode by default):[/green]
 

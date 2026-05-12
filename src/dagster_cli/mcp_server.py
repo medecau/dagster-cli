@@ -1,12 +1,12 @@
 """MCP server implementation for Dagster CLI."""
 
 from typing import Optional
+
 from mcp.server.fastmcp import FastMCP
 
 from dagster_cli.client import DagsterClient
 from dagster_cli.utils.errors import DagsterCLIError
 from dagster_cli.utils.run_utils import resolve_run_id
-
 
 # Log level hierarchy for filtering
 LEVEL_HIERARCHY = {
@@ -55,14 +55,15 @@ def should_include_event(event, min_level):
     return LEVEL_HIERARCHY.get(event_level, -1) >= LEVEL_HIERARCHY.get(min_level, 0)
 
 
-def create_mcp_server(profile_name: Optional[str]) -> FastMCP:
+def create_mcp_server(profile_name: str | None) -> FastMCP:
     """Create MCP server with Dagster+ tools and resources."""
     mcp = FastMCP("dagster-cli")
 
     # Tool: List jobs
     @mcp.tool()
     async def list_jobs(
-        location: Optional[str] = None, deployment: Optional[str] = None
+        location: str | None = None,
+        deployment: str | None = None,
     ) -> dict:
         """List available Dagster jobs.
 
@@ -86,10 +87,10 @@ def create_mcp_server(profile_name: Optional[str]) -> FastMCP:
     @mcp.tool()
     async def run_job(
         job_name: str,
-        config: Optional[dict] = None,
-        location: Optional[str] = None,
-        repository: Optional[str] = None,
-        deployment: Optional[str] = None,
+        config: dict | None = None,
+        location: str | None = None,
+        repository: str | None = None,
+        deployment: str | None = None,
     ) -> dict:
         """Submit a job for execution.
 
@@ -138,7 +139,7 @@ def create_mcp_server(profile_name: Optional[str]) -> FastMCP:
 
     # Tool: Get run status
     @mcp.tool()
-    async def get_run_status(run_id: str, deployment: Optional[str] = None) -> dict:
+    async def get_run_status(run_id: str, deployment: str | None = None) -> dict:
         """Get the status of a specific run.
 
         Args:
@@ -164,12 +165,11 @@ def create_mcp_server(profile_name: Optional[str]) -> FastMCP:
                             for r in matching_runs
                         ],
                     }
-                else:
-                    return {
-                        "status": "error",
-                        "error_type": "NotFound",
-                        "error": error_msg,
-                    }
+                return {
+                    "status": "error",
+                    "error_type": "NotFound",
+                    "error": error_msg,
+                }
 
             run = client.get_run_status(full_run_id)
 
@@ -189,7 +189,9 @@ def create_mcp_server(profile_name: Optional[str]) -> FastMCP:
     # Tool: List recent runs
     @mcp.tool()
     async def list_runs(
-        limit: int = 10, status: Optional[str] = None, deployment: Optional[str] = None
+        limit: int = 10,
+        status: str | None = None,
+        deployment: str | None = None,
     ) -> dict:
         """Get recent run history.
 
@@ -213,10 +215,10 @@ def create_mcp_server(profile_name: Optional[str]) -> FastMCP:
     # Tool: List assets
     @mcp.tool()
     async def list_assets(
-        prefix: Optional[str] = None,
-        group: Optional[str] = None,
-        location: Optional[str] = None,
-        deployment: Optional[str] = None,
+        prefix: str | None = None,
+        group: str | None = None,
+        location: str | None = None,
+        deployment: str | None = None,
     ) -> dict:
         """List all assets in the deployment.
 
@@ -242,8 +244,8 @@ def create_mcp_server(profile_name: Optional[str]) -> FastMCP:
     @mcp.tool()
     async def materialize_asset(
         asset_key: str,
-        partition_key: Optional[str] = None,
-        deployment: Optional[str] = None,
+        partition_key: str | None = None,
+        deployment: str | None = None,
     ) -> dict:
         """Trigger materialization of an asset.
 
@@ -279,7 +281,7 @@ def create_mcp_server(profile_name: Optional[str]) -> FastMCP:
                 "status": "success",
                 "run_id": run_id,
                 "url": run_url,
-                "message": f"Asset '{asset_key}' materialization submitted successfully",
+                "message": f"Asset '{asset_key}' materialization submitted",
             }
         except DagsterCLIError as e:
             return {"status": "error", "error_type": type(e).__name__, "error": str(e)}
@@ -289,7 +291,8 @@ def create_mcp_server(profile_name: Optional[str]) -> FastMCP:
     # Tool: Reload repository
     @mcp.tool()
     async def reload_repository(
-        location_name: str, deployment: Optional[str] = None
+        location_name: str,
+        deployment: str | None = None,
     ) -> dict:
         """Reload a repository location.
 
@@ -305,9 +308,11 @@ def create_mcp_server(profile_name: Optional[str]) -> FastMCP:
             success = client.reload_repository_location(location_name)
             return {
                 "status": "success" if success else "error",
-                "message": f"Repository location '{location_name}' reloaded successfully"
-                if success
-                else "Failed to reload",
+                "message": (
+                    f"Repository location '{location_name}' reloaded"
+                    if success
+                    else "Failed to reload"
+                ),
             }
         except DagsterCLIError as e:
             return {"status": "error", "error_type": type(e).__name__, "error": str(e)}
@@ -319,9 +324,9 @@ def create_mcp_server(profile_name: Optional[str]) -> FastMCP:
     async def get_run_logs(
         run_id: str,
         limit: int = 100,
-        level: Optional[str] = None,
+        level: str | None = None,
         include_stderr_on_error: bool = True,
-        deployment: Optional[str] = None,
+        deployment: str | None = None,
     ) -> dict:
         """Get event logs for a run, with optional level filtering.
 
@@ -353,12 +358,11 @@ def create_mcp_server(profile_name: Optional[str]) -> FastMCP:
                             for r in matching_runs
                         ],
                     }
-                else:
-                    return {
-                        "status": "error",
-                        "error_type": "NotFound",
-                        "error": error_msg,
-                    }
+                return {
+                    "status": "error",
+                    "error_type": "NotFound",
+                    "error": error_msg,
+                }
 
             # Validate level if provided
             filter_level = None
@@ -368,7 +372,10 @@ def create_mcp_server(profile_name: Optional[str]) -> FastMCP:
                     return {
                         "status": "error",
                         "error_type": "InvalidArgument",
-                        "error": f"Invalid log level: {level}. Valid levels are: DEBUG, INFO, WARNING, ERROR, CRITICAL",
+                        "error": (
+                            f"Invalid log level: {level}."
+                            " Valid levels: DEBUG, INFO, WARNING, ERROR, CRITICAL"
+                        ),
                     }
 
             # Initialize counters
@@ -458,7 +465,7 @@ def create_mcp_server(profile_name: Optional[str]) -> FastMCP:
 
                 if stderr_url:
                     try:
-                        response = requests.get(stderr_url)
+                        response = requests.get(stderr_url, timeout=30)
                         response.raise_for_status()
                         stderr_content = response.text.strip()
                         result["stderr"] = stderr_content
@@ -481,7 +488,9 @@ def create_mcp_server(profile_name: Optional[str]) -> FastMCP:
     # Tool: Get compute logs
     @mcp.tool()
     async def get_compute_logs(
-        run_id: str, log_type: str = "stderr", deployment: Optional[str] = None
+        run_id: str,
+        log_type: str = "stderr",
+        deployment: str | None = None,
     ) -> dict:
         """Get stdout/stderr logs for a run (Dagster+ only).
 
@@ -519,12 +528,11 @@ def create_mcp_server(profile_name: Optional[str]) -> FastMCP:
                             for r in matching_runs
                         ],
                     }
-                else:
-                    return {
-                        "status": "error",
-                        "error_type": "NotFound",
-                        "error": error_msg,
-                    }
+                return {
+                    "status": "error",
+                    "error_type": "NotFound",
+                    "error": error_msg,
+                }
 
             # Get compute log URLs
             log_urls = client.get_compute_log_urls(full_run_id)
@@ -535,11 +543,11 @@ def create_mcp_server(profile_name: Optional[str]) -> FastMCP:
                     "status": "error",
                     "error_type": "NotAvailable",
                     "error": f"No {log_type} logs available for this run",
-                    "note": "Compute logs may only be available for Dagster+ deployments",
+                    "note": "Compute logs may only be available for Dagster+",
                 }
 
             # Download log content
-            response = requests.get(url)
+            response = requests.get(url, timeout=30)
             response.raise_for_status()
             log_content = response.text
 

@@ -1,11 +1,11 @@
 """MCP (Model Context Protocol) command for exposing Dagster+ functionality."""
 
-import typer
 from typing import Optional
+
+import typer
 
 from dagster_cli.utils.output import console, print_error, print_info
 from dagster_cli.utils.tldr import print_tldr
-
 
 app = typer.Typer(
     help="""[bold]MCP operations[/bold]
@@ -45,10 +45,16 @@ def mcp_callback(
 @app.command()
 def start(
     http: bool = typer.Option(
-        False, "--http", help="Use HTTP transport instead of stdio"
+        False,
+        "--http",
+        help="Use HTTP transport instead of stdio",
     ),
-    profile: Optional[str] = typer.Option(
-        None, "--profile", "-p", help="Use specific profile", envvar="DGC_PROFILE"
+    profile: str | None = typer.Option(
+        None,
+        "--profile",
+        "-p",
+        help="Use specific profile",
+        envvar="DGC_PROFILE",
     ),
     host: str = typer.Option(
         "127.0.0.1",
@@ -56,7 +62,9 @@ def start(
         help="Host to bind to (HTTP mode only, currently uses default)",
     ),
     port: int = typer.Option(
-        8000, "--port", help="Port to bind to (HTTP mode only, currently uses default)"
+        8000,
+        "--port",
+        help="Port to bind to (HTTP mode only, currently uses default)",
     ),
     path: str = typer.Option(
         "/mcp/",
@@ -82,7 +90,7 @@ def start(
 
         if not profile_data.get("url") or not profile_data.get("token"):
             raise Exception(
-                "No authentication found. Please run 'dgc auth login' first."
+                "No authentication found. Please run 'dgc auth login' first.",
             )
 
         # Show startup message
@@ -99,7 +107,7 @@ def start(
         raise typer.Exit(1) from e
 
 
-def start_stdio_server(profile_name: Optional[str]):
+def start_stdio_server(profile_name: str | None):
     """Start MCP server in stdio mode."""
     from dagster_cli.mcp_server import create_mcp_server
 
@@ -111,7 +119,7 @@ def start_stdio_server(profile_name: Optional[str]):
 
 
 def start_http_server(
-    profile_name: Optional[str],
+    profile_name: str | None,
     host: str = "127.0.0.1",
     port: int = 8000,
     path: str = "/mcp/",

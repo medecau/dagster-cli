@@ -1,21 +1,21 @@
 """Deployment-related commands for Dagster CLI."""
 
-import typer
 from typing import Optional
+
+import typer
 from rich import box
 from rich.table import Table
 
 from dagster_cli.client import DagsterClient
 from dagster_cli.utils.output import (
     console,
+    create_spinner,
     print_error,
-    print_warning,
     print_info,
     print_success,
-    create_spinner,
+    print_warning,
 )
 from dagster_cli.utils.tldr import print_tldr
-
 
 app = typer.Typer(
     help="""[bold]Deployment management[/bold]
@@ -62,7 +62,7 @@ def _format_deployment_name(deployment: dict) -> tuple[str, str]:
 
     # Check if it's a branch deployment with metadata
     if deployment.get("isBranchDeployment") and deployment.get(
-        "branchDeploymentGitMetadata"
+        "branchDeploymentGitMetadata",
     ):
         metadata = deployment["branchDeploymentGitMetadata"]
         branch_name = metadata.get("branchName", "unknown")
@@ -73,27 +73,28 @@ def _format_deployment_name(deployment: dict) -> tuple[str, str]:
         # Format based on available info
         if branch_name and branch_name != "unknown":
             return (f"{branch_name} ({short_sha}...)", "Branch")
-        else:
-            return (f"branch ({short_sha}...)", "Branch")
+        return (f"branch ({short_sha}...)", "Branch")
 
     # Named deployments
     if deployment_name == "prod":
         return ("prod", "Production")
-    elif deployment_name == "staging":
+    if deployment_name == "staging":
         return (deployment_name, "Staging")
-    elif len(deployment_name) == 40 and deployment_name.isalnum():
+    if len(deployment_name) == 40 and deployment_name.isalnum():
         # Commit SHA without metadata (shouldn't happen but fallback)
         short_sha = deployment_name[:8]
         return (f"branch ({short_sha}...)", "Branch")
-    else:
-        # Other named deployments
-        return (deployment_name, "Custom")
+    # Other named deployments
+    return (deployment_name, "Custom")
 
 
 @app.command("list")
 def list_deployments(
-    profile: Optional[str] = typer.Option(
-        None, "--profile", "-p", help="Use specific profile"
+    profile: str | None = typer.Option(
+        None,
+        "--profile",
+        "-p",
+        help="Use specific profile",
     ),
     json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
 ):
@@ -116,10 +117,7 @@ def list_deployments(
             name = d["deploymentName"]
             if name == "prod":
                 return (0, name)
-            elif name == "staging":
-                return (1, name)
-            else:
-                return (2, name)
+            return (1, name) if name == "staging" else (2, name)
 
         deployments = sorted(deployments, key=sort_key)
 
@@ -161,7 +159,7 @@ def list_deployments(
             console.print(table)
             console.print()
             print_info(
-                "Use --deployment flag with any command to access a specific deployment"
+                "Use --deployment with any command to access a specific deployment",
             )
             print_info("Example: dgc run list --deployment staging")
 
@@ -173,8 +171,11 @@ def list_deployments(
 @app.command()
 def test(
     deployment_name: str = typer.Argument(..., help="Deployment name to test"),
-    profile: Optional[str] = typer.Option(
-        None, "--profile", "-p", help="Use specific profile"
+    profile: str | None = typer.Option(
+        None,
+        "--profile",
+        "-p",
+        help="Use specific profile",
     ),
 ):
     """Test if a deployment exists and is accessible."""
@@ -182,7 +183,8 @@ def test(
         # Try to create a client with the specified deployment
         with create_spinner(f"Testing deployment '{deployment_name}'...") as progress:
             task = progress.add_task(
-                f"Testing deployment '{deployment_name}'...", total=None
+                f"Testing deployment '{deployment_name}'...",
+                total=None,
             )
 
             try:
@@ -211,7 +213,7 @@ def test(
 
                 # Suggest listing deployments
                 print_info(
-                    "\nTip: Use 'dgc deployment list' to see available deployments"
+                    "\nTip: Use 'dgc deployment list' to see available deployments",
                 )
                 raise typer.Exit(1) from e
 

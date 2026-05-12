@@ -1,16 +1,15 @@
 """Output formatting utilities using Rich."""
 
-from typing import List, Dict, Any
+from typing import Any
 
 from rich import box
 from rich.console import Console
-from rich.table import Table
 from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.syntax import Syntax
+from rich.table import Table
 
 from dagster_cli.client import DagsterClient
-
 
 console = Console()
 
@@ -35,7 +34,7 @@ def print_info(message: str) -> None:
     console.print(f"[blue]ℹ[/blue] {message}")
 
 
-def print_jobs_table(jobs: List[Dict[str, Any]], show_location: bool = False) -> None:
+def print_jobs_table(jobs: list[dict[str, Any]], show_location: bool = False) -> None:
     """Print jobs in a formatted table."""
     table = Table(box=box.ROUNDED)
 
@@ -55,7 +54,7 @@ def print_jobs_table(jobs: List[Dict[str, Any]], show_location: bool = False) ->
     console.print(table)
 
 
-def print_runs_table(runs: List[Dict[str, Any]]) -> None:
+def print_runs_table(runs: list[dict[str, Any]]) -> None:
     """Print runs in a formatted table."""
     table = Table(box=box.ROUNDED)
 
@@ -108,7 +107,7 @@ def print_runs_table(runs: List[Dict[str, Any]]) -> None:
     console.print(table)
 
 
-def print_run_details(run: Dict[str, Any]) -> None:
+def print_run_details(run: dict[str, Any]) -> None:
     """Print detailed run information in a panel."""
     run_id = run["id"]
     job_name = run.get("pipeline", {}).get("name", "Unknown")
@@ -145,7 +144,7 @@ def print_run_details(run: Dict[str, Any]) -> None:
     console.print(panel)
 
 
-def print_config_json(config: Dict[str, Any]) -> None:
+def print_config_json(config: dict[str, Any]) -> None:
     """Print configuration as syntax-highlighted JSON."""
     import json
 
@@ -154,7 +153,7 @@ def print_config_json(config: Dict[str, Any]) -> None:
     console.print(syntax)
 
 
-def create_spinner(message: str) -> Progress:
+def create_spinner(_message: str) -> Progress:
     """Create a spinner progress indicator."""
     return Progress(
         SpinnerColumn(),
@@ -163,7 +162,7 @@ def create_spinner(message: str) -> Progress:
     )
 
 
-def print_profiles_table(profiles: Dict[str, Dict[str, str]], current: str) -> None:
+def print_profiles_table(profiles: dict[str, dict[str, str]], current: str) -> None:
     """Print profiles in a formatted table."""
     table = Table(box=box.ROUNDED)
 
@@ -183,7 +182,7 @@ def print_profiles_table(profiles: Dict[str, Dict[str, str]], current: str) -> N
     console.print(table)
 
 
-def print_automations_table(automations: List[Dict[str, Any]]) -> None:
+def print_automations_table(automations: list[dict[str, Any]]) -> None:
     """Print automations (schedules and sensors) in a formatted table."""
     table = Table(box=box.ROUNDED)
 
@@ -253,7 +252,7 @@ def print_automations_table(automations: List[Dict[str, Any]]) -> None:
     console.print(table)
 
 
-def print_automation_details(automation: Dict[str, Any]) -> None:
+def print_automation_details(automation: dict[str, Any]) -> None:
     """Print detailed automation information in a panel."""
     name = automation["name"]
     auto_type = automation["type"]
@@ -297,13 +296,16 @@ def print_automation_details(automation: Dict[str, Any]) -> None:
         skip_count = sum(t.get("status") == "SKIPPED" for t in recent_ticks)
 
         content += "\n\n[cyan]Recent Activity:[/cyan]"
-        content += f"\n  Last {len(recent_ticks)} ticks: {success_count} success, {failure_count} failed, {skip_count} skipped"
+        content += (
+            f"\n  Last {len(recent_ticks)} ticks:"
+            f" {success_count} success, {failure_count} failed, {skip_count} skipped"
+        )
 
     panel = Panel(content, title=f"{auto_type} Details", box=box.ROUNDED)
     console.print(panel)
 
 
-def print_automation_ticks_table(ticks: List[Dict[str, Any]]) -> None:
+def print_automation_ticks_table(ticks: list[dict[str, Any]]) -> None:
     """Print automation tick history in a formatted table."""
     table = Table(box=box.ROUNDED)
 

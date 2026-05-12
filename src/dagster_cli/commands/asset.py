@@ -1,36 +1,35 @@
 """Asset-related commands for Dagster CLI."""
 
+from datetime import datetime, timezone
+
 import typer
-from typing import Optional
-from datetime import datetime
 from rich import box
 from rich.table import Table
 
 from dagster_cli.client import DagsterClient
 from dagster_cli.constants import (
+    DEPLOYMENT_OPTION_HELP,
     DEPLOYMENT_OPTION_NAME,
     DEPLOYMENT_OPTION_SHORT,
-    DEPLOYMENT_OPTION_HELP,
 )
 from dagster_cli.utils.output import (
     console,
-    print_success,
-    print_error,
-    print_warning,
-    print_info,
     create_spinner,
+    print_error,
+    print_info,
+    print_success,
+    print_warning,
 )
 from dagster_cli.utils.tldr import print_tldr
-
 
 app = typer.Typer(
     help="""[bold]Asset operations[/bold]
 
 [bold cyan]Available commands:[/bold cyan]
-  [green]list[/green]         List all assets [dim](--prefix, --group, --location, --json)[/dim]
+  [green]list[/green]         List all assets [dim](--prefix, --group, --location)[/dim]
   [green]view[/green]         View asset details [dim]ASSET_KEY [--json][/dim]
-  [green]materialize[/green]  Materialize an asset [dim]ASSET_KEY [--partition] [--yes][/dim]
-  [green]health[/green]       Check asset health status [dim](--all, --group, --json)[/dim]
+  [green]materialize[/green]  Materialize an asset [dim]ASSET_KEY [--partition][/dim]
+  [green]health[/green]       Check asset health status [dim](--all, --group)[/dim]
 
 [dim]Use 'dgc asset COMMAND --help' for detailed options[/dim]""",
     rich_markup_mode="rich",
@@ -60,19 +59,30 @@ def asset_callback(
 
 @app.command("list")
 def list_assets(
-    prefix: Optional[str] = typer.Option(
-        None, "--prefix", "-p", help="Filter assets by prefix"
+    prefix: str | None = typer.Option(
+        None,
+        "--prefix",
+        "-p",
+        help="Filter assets by prefix",
     ),
-    group: Optional[str] = typer.Option(
-        None, "--group", "-g", help="Filter by asset group"
+    group: str | None = typer.Option(
+        None,
+        "--group",
+        "-g",
+        help="Filter by asset group",
     ),
-    location: Optional[str] = typer.Option(
-        None, "--location", "-l", help="Filter by repository location"
+    location: str | None = typer.Option(
+        None,
+        "--location",
+        "-l",
+        help="Filter by repository location",
     ),
-    profile: Optional[str] = typer.Option(
-        None, "--profile", help="Use specific profile"
+    profile: str | None = typer.Option(
+        None,
+        "--profile",
+        help="Use specific profile",
     ),
-    deployment: Optional[str] = typer.Option(
+    deployment: str | None = typer.Option(
         None,
         DEPLOYMENT_OPTION_NAME,
         DEPLOYMENT_OPTION_SHORT,
@@ -122,7 +132,11 @@ def list_assets(
                     materialized = "—"
 
                 table.add_row(
-                    asset_key_str, group_name, location_name, compute_kind, materialized
+                    asset_key_str,
+                    group_name,
+                    location_name,
+                    compute_kind,
+                    materialized,
                 )
 
             print_info(f"Found {len(assets)} assets")
@@ -136,12 +150,16 @@ def list_assets(
 @app.command()
 def view(
     asset_key: str = typer.Argument(
-        ..., help="Asset key (e.g., 'my_asset' or 'prefix/my_asset')"
+        ...,
+        help="Asset key (e.g., 'my_asset' or 'prefix/my_asset')",
     ),
-    profile: Optional[str] = typer.Option(
-        None, "--profile", "-p", help="Use specific profile"
+    profile: str | None = typer.Option(
+        None,
+        "--profile",
+        "-p",
+        help="Use specific profile",
     ),
-    deployment: Optional[str] = typer.Option(
+    deployment: str | None = typer.Option(
         None,
         DEPLOYMENT_OPTION_NAME,
         DEPLOYMENT_OPTION_SHORT,
@@ -273,13 +291,18 @@ def view(
 @app.command()
 def materialize(
     asset_key: str = typer.Argument(..., help="Asset key to materialize"),
-    partition: Optional[str] = typer.Option(
-        None, "--partition", "-p", help="Partition to materialize"
+    partition: str | None = typer.Option(
+        None,
+        "--partition",
+        "-p",
+        help="Partition to materialize",
     ),
-    profile: Optional[str] = typer.Option(
-        None, "--profile", help="Use specific profile"
+    profile: str | None = typer.Option(
+        None,
+        "--profile",
+        help="Use specific profile",
     ),
-    deployment: Optional[str] = typer.Option(
+    deployment: str | None = typer.Option(
         None,
         DEPLOYMENT_OPTION_NAME,
         DEPLOYMENT_OPTION_SHORT,
@@ -304,7 +327,8 @@ def materialize(
         with create_spinner("Submitting materialization...") as progress:
             task = progress.add_task("Submitting materialization...", total=None)
             run_id = client.materialize_asset(
-                asset_key=asset_key, partition_key=partition
+                asset_key=asset_key,
+                partition_key=partition,
             )
             progress.remove_task(task)
 
@@ -333,13 +357,18 @@ def health(
         "-a",
         help="Show all assets (default: failed and never materialized only)",
     ),
-    group: Optional[str] = typer.Option(
-        None, "--group", "-g", help="Filter by asset group"
+    group: str | None = typer.Option(
+        None,
+        "--group",
+        "-g",
+        help="Filter by asset group",
     ),
-    profile: Optional[str] = typer.Option(
-        None, "--profile", help="Use specific profile"
+    profile: str | None = typer.Option(
+        None,
+        "--profile",
+        help="Use specific profile",
     ),
-    deployment: Optional[str] = typer.Option(
+    deployment: str | None = typer.Option(
         None,
         DEPLOYMENT_OPTION_NAME,
         DEPLOYMENT_OPTION_SHORT,
@@ -393,7 +422,9 @@ def health(
                     status = run_info.get("status", "UNKNOWN")
 
                 if timestamp := latest.get("timestamp"):
-                    last_update = datetime.fromtimestamp(float(timestamp) / 1000)
+                    last_update = datetime.fromtimestamp(
+                        float(timestamp) / 1000, tz=timezone.utc
+                    )
                     last_update_str = last_update.strftime("%Y-%m-%d %H:%M:%S")
                 else:
                     last_update = None
@@ -420,7 +451,7 @@ def health(
                         "group": asset.get("groupName", "—"),
                         "status": "Never Materialized",
                         "last_update": "—",
-                    }
+                    },
                 )
         # Prepare output
         all_assets_list = failed_assets + never_materialized + healthy_assets
@@ -456,7 +487,8 @@ def health(
                 console.print("\n[bold]Asset Details[/bold]")
                 if not all_assets:
                     console.print(
-                        f"[dim]Showing {unhealthy_count} unhealthy assets (use --all to see all)[/dim]"
+                        f"[dim]Showing {unhealthy_count} unhealthy assets"
+                        " (use --all to see all)[/dim]",
                     )
 
                 table = Table(box=box.ROUNDED)

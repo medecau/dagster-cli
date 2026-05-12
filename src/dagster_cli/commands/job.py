@@ -1,26 +1,26 @@
 """Job-related commands for Dagster CLI."""
 
 import json
-import typer
 from typing import Optional
+
+import typer
 
 from dagster_cli.client import DagsterClient
 from dagster_cli.constants import (
+    DEPLOYMENT_OPTION_HELP,
     DEPLOYMENT_OPTION_NAME,
     DEPLOYMENT_OPTION_SHORT,
-    DEPLOYMENT_OPTION_HELP,
 )
 from dagster_cli.utils.output import (
     console,
-    print_success,
+    create_spinner,
     print_error,
-    print_warning,
     print_info,
     print_jobs_table,
-    create_spinner,
+    print_success,
+    print_warning,
 )
 from dagster_cli.utils.tldr import print_tldr
-
 
 app = typer.Typer(
     help="""[bold]Job operations[/bold]
@@ -58,13 +58,19 @@ def job_callback(
 
 @app.command("list")
 def list_jobs(
-    location: Optional[str] = typer.Option(
-        None, "--location", "-l", help="Filter by repository location"
+    location: str | None = typer.Option(
+        None,
+        "--location",
+        "-l",
+        help="Filter by repository location",
     ),
-    profile: Optional[str] = typer.Option(
-        None, "--profile", "-p", help="Use specific profile"
+    profile: str | None = typer.Option(
+        None,
+        "--profile",
+        "-p",
+        help="Use specific profile",
     ),
-    deployment: Optional[str] = typer.Option(
+    deployment: str | None = typer.Option(
         None,
         DEPLOYMENT_OPTION_NAME,
         DEPLOYMENT_OPTION_SHORT,
@@ -99,22 +105,37 @@ def list_jobs(
 @app.command()
 def run(
     job_name: str = typer.Argument(..., help="Name of the job to run"),
-    config: Optional[str] = typer.Option(
-        None, "--config", "-c", help="Run configuration as JSON string"
+    config: str | None = typer.Option(
+        None,
+        "--config",
+        "-c",
+        help="Run configuration as JSON string",
     ),
-    config_file: Optional[typer.FileText] = typer.Option(
-        None, "--config-file", "-f", help="Run configuration from file"
+    config_file: typer.FileText | None = typer.Option(
+        None,
+        "--config-file",
+        "-f",
+        help="Run configuration from file",
     ),
-    location: Optional[str] = typer.Option(
-        None, "--location", "-l", help="Repository location (overrides profile default)"
+    location: str | None = typer.Option(
+        None,
+        "--location",
+        "-l",
+        help="Repository location (overrides profile default)",
     ),
-    repository: Optional[str] = typer.Option(
-        None, "--repository", "-r", help="Repository name (overrides profile default)"
+    repository: str | None = typer.Option(
+        None,
+        "--repository",
+        "-r",
+        help="Repository name (overrides profile default)",
     ),
-    profile: Optional[str] = typer.Option(
-        None, "--profile", "-p", help="Use specific profile"
+    profile: str | None = typer.Option(
+        None,
+        "--profile",
+        "-p",
+        help="Use specific profile",
     ),
-    deployment: Optional[str] = typer.Option(
+    deployment: str | None = typer.Option(
         None,
         DEPLOYMENT_OPTION_NAME,
         DEPLOYMENT_OPTION_SHORT,
@@ -185,10 +206,13 @@ def run(
 @app.command()
 def view(
     job_name: str = typer.Argument(..., help="Name of the job to view"),
-    profile: Optional[str] = typer.Option(
-        None, "--profile", "-p", help="Use specific profile"
+    profile: str | None = typer.Option(
+        None,
+        "--profile",
+        "-p",
+        help="Use specific profile",
     ),
-    deployment: Optional[str] = typer.Option(
+    deployment: str | None = typer.Option(
         None,
         DEPLOYMENT_OPTION_NAME,
         DEPLOYMENT_OPTION_SHORT,

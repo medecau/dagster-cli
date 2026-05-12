@@ -1,9 +1,10 @@
 """Test utilities."""
 
-import pytest
 from unittest.mock import MagicMock, patch
 
-from dagster_cli.client import _split_url_for_dagster_client, DagsterClient
+import pytest
+
+from dagster_cli.client import DagsterClient, _split_url_for_dagster_client
 from dagster_cli.utils.errors import APIError
 from dagster_cli.utils.run_utils import resolve_run_id
 
@@ -154,7 +155,7 @@ class TestMaterializeAsset:
             "launchPipelineExecution": {
                 "__typename": "LaunchRunSuccess",
                 "run": {"runId": "run-123"},
-            }
+            },
         }
 
         run_id = client.materialize_asset("my_asset")
@@ -170,7 +171,7 @@ class TestMaterializeAsset:
             "launchPipelineExecution": {
                 "__typename": "LaunchRunSuccess",
                 "run": {"runId": "run-456"},
-            }
+            },
         }
 
         run_id = client.materialize_asset("prefix/my_asset")
@@ -186,7 +187,7 @@ class TestMaterializeAsset:
             "launchPipelineExecution": {
                 "__typename": "LaunchRunSuccess",
                 "run": {"runId": "run-789"},
-            }
+            },
         }
 
         client.materialize_asset("my_asset", partition_key="2024-01-01")
@@ -201,7 +202,7 @@ class TestMaterializeAsset:
             "launchPipelineExecution": {
                 "__typename": "LaunchRunSuccess",
                 "run": {"runId": "run-000"},
-            }
+            },
         }
 
         client.materialize_asset("my_asset")
@@ -216,7 +217,7 @@ class TestMaterializeAsset:
             "launchPipelineExecution": {
                 "__typename": "PipelineNotFoundError",
                 "message": "pipeline not found",
-            }
+            },
         }
 
         with pytest.raises(APIError, match="PipelineNotFoundError"):

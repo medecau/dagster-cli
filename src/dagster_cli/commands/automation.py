@@ -15,14 +15,18 @@ from dagster_cli.utils.output import (
 )
 
 app = typer.Typer(
-    help="Automation management (schedules and sensors)", no_args_is_help=True
+    help="Automation management (schedules and sensors)",
+    no_args_is_help=True,
 )
 
 
 @app.command("list")
 def list_automations(
-    profile: Optional[str] = typer.Option(
-        None, "--profile", "-p", help="Use specific profile"
+    profile: str | None = typer.Option(
+        None,
+        "--profile",
+        "-p",
+        help="Use specific profile",
     ),
     json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
 ):
@@ -55,8 +59,11 @@ def list_automations(
 @app.command()
 def view(
     name: str = typer.Argument(..., help="Automation name"),
-    profile: Optional[str] = typer.Option(
-        None, "--profile", "-p", help="Use specific profile"
+    profile: str | None = typer.Option(
+        None,
+        "--profile",
+        "-p",
+        help="Use specific profile",
     ),
     json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
 ):
@@ -88,12 +95,17 @@ def view(
 @app.command()
 def history(
     name: str = typer.Argument(..., help="Automation name"),
-    profile: Optional[str] = typer.Option(
-        None, "--profile", "-p", help="Use specific profile"
+    profile: str | None = typer.Option(
+        None,
+        "--profile",
+        "-p",
+        help="Use specific profile",
     ),
     limit: int = typer.Option(10, "--limit", "-n", help="Number of entries to show"),
     ticks: bool = typer.Option(
-        False, "--ticks", help="Show tick history instead of runs"
+        False,
+        "--ticks",
+        help="Show tick history instead of runs",
     ),
     json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
 ):

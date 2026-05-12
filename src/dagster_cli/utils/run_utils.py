@@ -1,13 +1,15 @@
 """Utilities for run-related operations."""
 
-from typing import Optional, Tuple, List, Dict, Any
+from typing import Any
 
 from dagster_cli.client import DagsterClient
 
 
 def resolve_run_id(
-    client: DagsterClient, run_id: str, recent_runs_limit: int = 50
-) -> Tuple[str, Optional[str], Optional[List[Dict[str, Any]]]]:
+    client: DagsterClient,
+    run_id: str,
+    recent_runs_limit: int = 50,
+) -> tuple[str, str | None, list[dict[str, Any]] | None]:
     """
     Resolve a potentially partial run ID to a full run ID.
 
@@ -28,12 +30,14 @@ def resolve_run_id(
 
     # Search recent runs for matches
     recent_runs = client.get_recent_runs(limit=recent_runs_limit)
-    matching_runs = [r for r in recent_runs if r["id"].startswith(run_id)]
-
-    if not matching_runs:
-        return run_id, f"No runs found matching '{run_id}'", None
-    elif len(matching_runs) == 1:
-        return matching_runs[0]["id"], None, None
-    else:
-        # Return first 5 matches for display
-        return (run_id, f"Multiple runs found matching '{run_id}'", matching_runs[:5])
+    if matching_runs := [r for r in recent_runs if r["id"].startswith(run_id)]:
+        return (
+            (matching_runs[0]["id"], None, None)
+            if len(matching_runs) == 1
+            else (
+                run_id,
+                f"Multiple runs found matching '{run_id}'",
+                matching_runs[:5],
+            )
+        )
+    return run_id, f"No runs found matching '{run_id}'", None

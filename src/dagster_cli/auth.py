@@ -1,27 +1,28 @@
 """Authentication commands for Dagster CLI."""
 
-import typer
+import contextlib
 from typing import Optional
 
-from dagster_cli.config import Config
+import typer
+
 from dagster_cli.client import DagsterClient
+from dagster_cli.config import Config
+from dagster_cli.utils.errors import ConfigError
 from dagster_cli.utils.output import (
     console,
-    print_success,
     print_error,
-    print_warning,
     print_info,
     print_profiles_table,
+    print_success,
+    print_warning,
 )
-from dagster_cli.utils.errors import ConfigError
 from dagster_cli.utils.tldr import print_tldr
-
 
 app = typer.Typer(
     help="""[bold]Authentication management[/bold]
 
 [bold cyan]Available commands:[/bold cyan]
-  [green]login[/green]    Authenticate with Dagster+ [dim](--url, --token, --profile)[/dim]
+  [green]login[/green]    Authenticate [dim](--url, --token, --profile)[/dim]
   [green]logout[/green]   Remove stored credentials [dim][--profile][/dim]
   [green]status[/green]   Show authentication status
   [green]switch[/green]   Switch between profiles [dim]PROFILE_NAME[/dim]
@@ -54,20 +55,34 @@ def auth_callback(
 
 @app.command()
 def login(
-    url: Optional[str] = typer.Option(
-        None, "--url", help="Dagster+ deployment URL (e.g., org.dagster.cloud/prod)"
+    url: str | None = typer.Option(
+        None,
+        "--url",
+        help="Dagster+ deployment URL (e.g., org.dagster.cloud/prod)",
     ),
-    token: Optional[str] = typer.Option(
-        None, "--token", help="Dagster+ User Token", hide_input=True
+    token: str | None = typer.Option(
+        None,
+        "--token",
+        help="Dagster+ User Token",
+        hide_input=True,
     ),
     profile: str = typer.Option(
-        "default", "--profile", "-p", help="Profile name to save credentials"
+        "default",
+        "--profile",
+        "-p",
+        help="Profile name to save credentials",
     ),
-    location: Optional[str] = typer.Option(
-        None, "--location", "-l", help="Default repository location"
+    location: str | None = typer.Option(
+        None,
+        "--location",
+        "-l",
+        help="Default repository location",
     ),
-    repository: Optional[str] = typer.Option(
-        None, "--repository", "-r", help="Default repository name"
+    repository: str | None = typer.Option(
+        None,
+        "--repository",
+        "-r",
+        help="Default repository name",
     ),
 ):
     """Authenticate with Dagster+."""
@@ -89,17 +104,18 @@ def login(
             info = client.get_deployment_info()
 
             # If we didn't get location/repository, try to detect them
-            if not location or not repository:
-                if repos := info.get("repositoriesOrError", {}).get("nodes", []):
-                    first_repo = repos[0]
-                    if not location:
-                        location = first_repo.get("location", {}).get("name")
-                    if not repository:
-                        repository = first_repo.get("name", "__repository__")
+            if (not location or not repository) and (
+                repos := info.get("repositoriesOrError", {}).get("nodes", [])
+            ):
+                first_repo = repos[0]
+                if not location:
+                    location = first_repo.get("location", {}).get("name")
+                if not repository:
+                    repository = first_repo.get("name", "__repository__")
 
-                    # Update profile with discovered values
-                    if location or repository:
-                        config.set_profile(profile, url, token, location, repository)
+                # Update profile with discovered values
+                if location or repository:
+                    config.set_profile(profile, url, token, location, repository)
 
             # Set as current profile
             config.set_current_profile(profile)
@@ -114,25 +130,26 @@ def login(
 
         except Exception as e:
             # Clean up failed profile
-            try:
+            with contextlib.suppress(ConfigError):
                 config.delete_profile(profile)
-            except ConfigError:
-                pass
             print_error(f"Authentication failed: {str(e)}")
             raise typer.Exit(1) from e
 
 
 @app.command()
 def logout(
-    profile: Optional[str] = typer.Option(
-        None, "--profile", "-p", help="Profile to logout (default: current profile)"
+    profile: str | None = typer.Option(
+        None,
+        "--profile",
+        "-p",
+        help="Profile to logout (default: current profile)",
     ),
-    all: bool = typer.Option(False, "--all", help="Logout from all profiles"),
+    logout_all: bool = typer.Option(False, "--all", help="Logout from all profiles"),
 ):
     """Clear stored credentials."""
     config = Config()
 
-    if all:
+    if logout_all:
         # Clear all profiles
         profiles = list(config.list_profiles().keys())
         if not profiles:

@@ -1,11 +1,11 @@
 """Tests for MCP command functionality."""
 
+from unittest.mock import MagicMock, patch
+
 import pytest
 from typer.testing import CliRunner
-from unittest.mock import patch, MagicMock
 
 from dagster_cli.cli import app
-
 
 runner = CliRunner()
 
@@ -87,7 +87,7 @@ def test_mcp_server_validates_auth_on_startup():
     with patch("dagster_cli.config.Config") as mock_config:
         # Simulate auth failure
         mock_config.return_value.get_profile.return_value = {
-            "url": "test.dagster.cloud"
+            "url": "test.dagster.cloud",
         }  # Missing token
 
         result = runner.invoke(app, ["mcp", "start"])

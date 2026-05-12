@@ -1,8 +1,9 @@
 """Integration tests for MCP functionality."""
 
 import json
-import pytest
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from dagster_cli.mcp_server import create_mcp_server
 from dagster_cli.utils.errors import APIError
@@ -112,7 +113,7 @@ async def test_run_job_tool():
         call_args = mock_client.submit_job_run.call_args
         assert call_args.kwargs["job_name"] == "daily_etl"
         assert call_args.kwargs["run_config"] == {
-            "ops": {"my_op": {"config": {"key": "value"}}}
+            "ops": {"my_op": {"config": {"key": "value"}}},
         }
 
 
@@ -175,7 +176,7 @@ async def test_get_run_status_tool():
                 "pipeline": {"name": "daily_etl"},
                 "status": "SUCCESS",
                 "startTime": 1700000000000,
-            }
+            },
         ]
 
         server = create_mcp_server("test_profile")
@@ -264,7 +265,9 @@ async def test_list_assets_tool():
 
         # Call the tool with filters
         data = await call_tool_json(
-            server, "list_assets", {"group": "analytics", "prefix": "analytics/"}
+            server,
+            "list_assets",
+            {"group": "analytics", "prefix": "analytics/"},
         )
 
         # Verify response
@@ -274,7 +277,9 @@ async def test_list_assets_tool():
 
         # Verify client was called with filters
         mock_client.list_assets.assert_called_once_with(
-            prefix="analytics/", group="analytics", location=None
+            prefix="analytics/",
+            group="analytics",
+            location=None,
         )
 
 

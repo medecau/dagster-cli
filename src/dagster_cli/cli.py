@@ -1,26 +1,26 @@
 """Main CLI application for Dagster CLI."""
 
-import typer
 from typing import Optional
+
+import typer
 
 from dagster_cli import __version__
 from dagster_cli.auth import app as auth_app
-from dagster_cli.commands.job import app as job_app
-from dagster_cli.commands.run import app as run_app
-from dagster_cli.commands.repo import app as repo_app
 from dagster_cli.commands.asset import app as asset_app
-from dagster_cli.commands.deployment import app as deployment_app
 from dagster_cli.commands.automation import app as automation_app
+from dagster_cli.commands.deployment import app as deployment_app
+from dagster_cli.commands.job import app as job_app
 from dagster_cli.commands.mcp import app as mcp_app
+from dagster_cli.commands.repo import app as repo_app
+from dagster_cli.commands.run import app as run_app
 from dagster_cli.config import Config
 from dagster_cli.constants import (
+    DEPLOYMENT_OPTION_HELP,
     DEPLOYMENT_OPTION_NAME,
     DEPLOYMENT_OPTION_SHORT,
-    DEPLOYMENT_OPTION_HELP,
 )
 from dagster_cli.utils.output import console, print_info
 from dagster_cli.utils.tldr import print_tldr
-
 
 app = typer.Typer(
     name="dgc",
@@ -38,16 +38,24 @@ app.add_typer(
     help="Authentication management - login, logout, switch profiles",
 )
 app.add_typer(
-    job_app, name="job", help="Job operations - list, view details, run with config"
+    job_app,
+    name="job",
+    help="Job operations - list, view details, run with config",
 )
 app.add_typer(
-    run_app, name="run", help="Run management - list, view logs, check status"
+    run_app,
+    name="run",
+    help="Run management - list, view logs, check status",
 )
 app.add_typer(
-    repo_app, name="repo", help="Repository management - list locations, reload"
+    repo_app,
+    name="repo",
+    help="Repository management - list locations, reload",
 )
 app.add_typer(
-    asset_app, name="asset", help="Asset operations - list, materialize, check health"
+    asset_app,
+    name="asset",
+    help="Asset operations - list, materialize, check health",
 )
 app.add_typer(
     deployment_app,
@@ -60,7 +68,9 @@ app.add_typer(
     help="Automation management - list schedules and sensors",
 )
 app.add_typer(
-    mcp_app, name="mcp", help="MCP operations - start server (stdio or --http mode)"
+    mcp_app,
+    name="mcp",
+    help="MCP operations - start server (stdio or --http mode)",
 )
 
 
@@ -95,8 +105,12 @@ def main(
         callback=tldr_callback,
         is_eager=True,
     ),
-    profile: Optional[str] = typer.Option(
-        None, "--profile", "-p", help="Use specific profile", envvar="DGC_PROFILE"
+    profile: str | None = typer.Option(
+        None,
+        "--profile",
+        "-p",
+        help="Use specific profile",
+        envvar="DGC_PROFILE",
     ),
 ):
     """
@@ -119,12 +133,11 @@ def main(
         dgc [command] --help
     """
     # Profile handling is done per-command, this is just for the callback
-    pass
 
 
 @app.command()
 def status(
-    deployment: Optional[str] = typer.Option(
+    deployment: str | None = typer.Option(
         None,
         DEPLOYMENT_OPTION_NAME,
         DEPLOYMENT_OPTION_SHORT,
@@ -164,10 +177,13 @@ def status(
 
 @app.command()
 def config(
-    key: Optional[str] = typer.Argument(None, help="Configuration key to get/set"),
-    value: Optional[str] = typer.Argument(None, help="Value to set"),
+    key: str | None = typer.Argument(None, help="Configuration key to get/set"),
+    value: str | None = typer.Argument(None, help="Value to set"),
     list_all: bool = typer.Option(
-        False, "--list", "-l", help="List all configuration values"
+        False,
+        "--list",
+        "-l",
+        help="List all configuration values",
     ),
 ):
     """Get or set configuration values."""

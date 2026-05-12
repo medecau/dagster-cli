@@ -2,16 +2,16 @@
 
 import json
 import os
-from typing import Dict, Optional, Any
+from typing import Any
 
 from dagster_cli.constants import (
     CONFIG_DIR,
     CONFIG_FILE,
     DEFAULT_PROFILE,
-    ENV_TOKEN,
-    ENV_URL,
     ENV_LOCATION,
     ENV_REPOSITORY,
+    ENV_TOKEN,
+    ENV_URL,
 )
 from dagster_cli.utils.errors import ConfigError
 
@@ -29,9 +29,9 @@ class Config:
 
         # Set restrictive permissions on config directory
         if os.name != "nt":  # Unix-like systems
-            os.chmod(CONFIG_DIR, 0o700)
+            CONFIG_DIR.chmod(0o700)
 
-    def _load_config(self) -> Dict[str, Any]:
+    def _load_config(self) -> dict[str, Any]:
         """Load configuration from file."""
         if not CONFIG_FILE.exists():
             return {
@@ -41,7 +41,7 @@ class Config:
             }
 
         try:
-            with open(CONFIG_FILE, "r") as f:
+            with CONFIG_FILE.open() as f:
                 return json.load(f)
         except json.JSONDecodeError as e:
             raise ConfigError(f"Invalid configuration file: {e}") from e
@@ -51,16 +51,16 @@ class Config:
     def _save_config(self) -> None:
         """Save configuration to file."""
         try:
-            with open(CONFIG_FILE, "w") as f:
+            with CONFIG_FILE.open("w") as f:
                 json.dump(self._config, f, indent=2)
 
             # Set restrictive permissions on config file
             if os.name != "nt":  # Unix-like systems
-                os.chmod(CONFIG_FILE, 0o600)
+                CONFIG_FILE.chmod(0o600)
         except Exception as e:
             raise ConfigError(f"Error saving configuration: {e}") from e
 
-    def get_profile(self, profile_name: Optional[str] = None) -> Dict[str, str]:
+    def get_profile(self, profile_name: str | None = None) -> dict[str, str]:
         """Get profile configuration, with environment variable fallback."""
         if profile_name is None:
             profile_name = self._config.get("current_profile", DEFAULT_PROFILE)
@@ -80,8 +80,8 @@ class Config:
         profile_name: str,
         url: str,
         token: str,
-        location: Optional[str] = None,
-        repository: Optional[str] = None,
+        location: str | None = None,
+        repository: str | None = None,
     ) -> None:
         """Set profile configuration."""
         if "profiles" not in self._config:
@@ -119,11 +119,11 @@ class Config:
         """Get the name of the current profile."""
         return self._config.get("current_profile", DEFAULT_PROFILE)
 
-    def list_profiles(self) -> Dict[str, Dict[str, str]]:
+    def list_profiles(self) -> dict[str, dict[str, str]]:
         """List all profiles."""
         return self._config.get("profiles", {})
 
-    def has_auth(self, profile_name: Optional[str] = None) -> bool:
+    def has_auth(self, profile_name: str | None = None) -> bool:
         """Check if authentication is configured."""
         profile = self.get_profile(profile_name)
         return bool(profile.get("url") and profile.get("token"))

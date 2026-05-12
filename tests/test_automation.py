@@ -1,12 +1,12 @@
 """Tests for automation commands."""
 
-import pytest
 from unittest.mock import patch
+
+import pytest
 from typer.testing import CliRunner
 
 from dagster_cli.cli import app
 from dagster_cli.utils.errors import APIError
-
 
 runner = CliRunner()
 
@@ -85,7 +85,7 @@ class TestAutomationList:
                 "type": "Schedule",
                 "target": "test_job",
                 "status": "RUNNING",
-            }
+            },
         ]
 
         result = runner.invoke(app, ["automation", "list", "--json"])
@@ -215,7 +215,8 @@ class TestAutomationHistory:
         ]
 
         result = runner.invoke(
-            app, ["automation", "history", "daily_update", "--ticks"]
+            app,
+            ["automation", "history", "daily_update", "--ticks"],
         )
 
         assert result.exit_code == 0
@@ -240,12 +241,14 @@ class TestAutomationHistory:
         mock_instance.get_automation_ticks.return_value = []
 
         result = runner.invoke(
-            app, ["automation", "history", "test_automation", "--ticks", "--limit", "5"]
+            app,
+            ["automation", "history", "test_automation", "--ticks", "--limit", "5"],
         )
 
         assert result.exit_code == 0
         mock_instance.get_automation_ticks.assert_called_with(
-            "test_automation", limit=5
+            "test_automation",
+            limit=5,
         )
 
     def test_history_error(self, mock_client):

@@ -1,26 +1,26 @@
 """Repository-related commands for Dagster CLI."""
 
-import typer
 from typing import Optional
+
+import typer
 from rich import box
 from rich.table import Table
 
 from dagster_cli.client import DagsterClient
 from dagster_cli.constants import (
+    DEPLOYMENT_OPTION_HELP,
     DEPLOYMENT_OPTION_NAME,
     DEPLOYMENT_OPTION_SHORT,
-    DEPLOYMENT_OPTION_HELP,
 )
 from dagster_cli.utils.output import (
     console,
-    print_success,
-    print_error,
-    print_warning,
-    print_info,
     create_spinner,
+    print_error,
+    print_info,
+    print_success,
+    print_warning,
 )
 from dagster_cli.utils.tldr import print_tldr
-
 
 app = typer.Typer(
     help="""[bold]Repository management[/bold]
@@ -57,10 +57,13 @@ def repo_callback(
 
 @app.command("list")
 def list_repos(
-    profile: Optional[str] = typer.Option(
-        None, "--profile", "-p", help="Use specific profile"
+    profile: str | None = typer.Option(
+        None,
+        "--profile",
+        "-p",
+        help="Use specific profile",
     ),
-    deployment: Optional[str] = typer.Option(
+    deployment: str | None = typer.Option(
         None,
         DEPLOYMENT_OPTION_NAME,
         DEPLOYMENT_OPTION_SHORT,
@@ -111,7 +114,7 @@ def list_repos(
                 table.add_row(location_name, str(data["job_count"]))
 
             print_info(
-                f"Dagster+ deployment (version: {info.get('version', 'Unknown')})"
+                f"Dagster+ deployment (version: {info.get('version', 'Unknown')})",
             )
             console.print(table)
             print_info(f"Total: {len(locations)} code locations, {total_jobs} jobs")
@@ -124,10 +127,13 @@ def list_repos(
 @app.command()
 def reload(
     location: str = typer.Argument(..., help="Repository location to reload"),
-    profile: Optional[str] = typer.Option(
-        None, "--profile", "-p", help="Use specific profile"
+    profile: str | None = typer.Option(
+        None,
+        "--profile",
+        "-p",
+        help="Use specific profile",
     ),
-    deployment: Optional[str] = typer.Option(
+    deployment: str | None = typer.Option(
         None,
         DEPLOYMENT_OPTION_NAME,
         DEPLOYMENT_OPTION_SHORT,

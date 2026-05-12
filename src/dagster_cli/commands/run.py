@@ -1,27 +1,27 @@
 """Run-related commands for Dagster CLI."""
 
+from pathlib import Path
+
 import typer
-from typing import Optional
 
 from dagster_cli.client import DagsterClient
 from dagster_cli.constants import (
     DEFAULT_RUN_LIMIT,
+    DEPLOYMENT_OPTION_HELP,
     DEPLOYMENT_OPTION_NAME,
     DEPLOYMENT_OPTION_SHORT,
-    DEPLOYMENT_OPTION_HELP,
 )
 from dagster_cli.utils.output import (
     console,
-    print_error,
-    print_warning,
-    print_info,
-    print_runs_table,
-    print_run_details,
     create_spinner,
+    print_error,
+    print_info,
+    print_run_details,
+    print_runs_table,
+    print_warning,
 )
 from dagster_cli.utils.run_utils import resolve_run_id
 from dagster_cli.utils.tldr import print_tldr
-
 
 # Log level hierarchy for filtering
 LEVEL_HIERARCHY = {
@@ -108,18 +108,24 @@ def run_callback(
 @app.command("list")
 def list_runs(
     limit: int = typer.Option(
-        DEFAULT_RUN_LIMIT, "--limit", "-n", help="Number of runs to show"
+        DEFAULT_RUN_LIMIT,
+        "--limit",
+        "-n",
+        help="Number of runs to show",
     ),
-    status: Optional[str] = typer.Option(
+    status: str | None = typer.Option(
         None,
         "--status",
         "-s",
         help="Filter by status (SUCCESS, FAILURE, STARTED, etc.)",
     ),
-    profile: Optional[str] = typer.Option(
-        None, "--profile", "-p", help="Use specific profile"
+    profile: str | None = typer.Option(
+        None,
+        "--profile",
+        "-p",
+        help="Use specific profile",
     ),
-    deployment: Optional[str] = typer.Option(
+    deployment: str | None = typer.Option(
         None,
         DEPLOYMENT_OPTION_NAME,
         DEPLOYMENT_OPTION_SHORT,
@@ -157,10 +163,13 @@ def list_runs(
 @app.command()
 def view(
     run_id: str = typer.Argument(..., help="Run ID to view (can be partial)"),
-    profile: Optional[str] = typer.Option(
-        None, "--profile", "-p", help="Use specific profile"
+    profile: str | None = typer.Option(
+        None,
+        "--profile",
+        "-p",
+        help="Use specific profile",
     ),
-    deployment: Optional[str] = typer.Option(
+    deployment: str | None = typer.Option(
         None,
         DEPLOYMENT_OPTION_NAME,
         DEPLOYMENT_OPTION_SHORT,
@@ -207,10 +216,13 @@ def view(
 @app.command()
 def cancel(
     run_id: str = typer.Argument(..., help="Run ID to cancel (can be partial)"),
-    profile: Optional[str] = typer.Option(
-        None, "--profile", "-p", help="Use specific profile"
+    profile: str | None = typer.Option(
+        None,
+        "--profile",
+        "-p",
+        help="Use specific profile",
     ),
-    deployment: Optional[str] = typer.Option(
+    deployment: str | None = typer.Option(
         None,
         DEPLOYMENT_OPTION_NAME,
         DEPLOYMENT_OPTION_SHORT,
@@ -227,27 +239,34 @@ def cancel(
 @app.command()
 def logs(
     run_id: str = typer.Argument(..., help="Run ID to view logs (can be partial)"),
-    profile: Optional[str] = typer.Option(
-        None, "--profile", "-p", help="Use specific profile"
+    profile: str | None = typer.Option(
+        None,
+        "--profile",
+        "-p",
+        help="Use specific profile",
     ),
-    deployment: Optional[str] = typer.Option(
+    deployment: str | None = typer.Option(
         None,
         DEPLOYMENT_OPTION_NAME,
         DEPLOYMENT_OPTION_SHORT,
         help=DEPLOYMENT_OPTION_HELP,
     ),
     stdout: bool = typer.Option(
-        False, "--stdout", help="Show stdout instead of events"
+        False,
+        "--stdout",
+        help="Show stdout instead of events",
     ),
     stderr: bool = typer.Option(
-        False, "--stderr", help="Show stderr instead of events"
+        False,
+        "--stderr",
+        help="Show stderr instead of events",
     ),
     events_only: bool = typer.Option(
         False,
         "--events-only",
         help="Only show events, don't auto-fetch stderr on errors",
     ),
-    level: Optional[str] = typer.Option(
+    level: str | None = typer.Option(
         None,
         "--level",
         "-l",
@@ -258,12 +277,17 @@ def logs(
         "--errors-only",
         help="Show only errors and critical events (shortcut for --level ERROR)",
     ),
-    output: Optional[str] = typer.Option(
-        None, "--output", "-o", help="Save logs to file instead of displaying"
+    output: str | None = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Save logs to file instead of displaying",
     ),
     json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
     no_stack: bool = typer.Option(
-        False, "--no-stack", help="Hide stack traces in error output"
+        False,
+        "--no-stack",
+        help="Hide stack traces in error output",
     ),
 ):
     """View run logs.
@@ -321,28 +345,28 @@ def logs(
 
             url = log_urls.get("stdout_url" if stdout else "stderr_url")
             if not url:
-                print_warning(
-                    f"No {'stdout' if stdout else 'stderr'} logs available for this run"
-                )
+                log_type = "stdout" if stdout else "stderr"
+                print_warning(f"No {log_type} logs available for this run")
                 print_info(
-                    "Compute logs may only be available for Dagster+ deployments"
+                    "Compute logs may only be available for Dagster+ deployments",
                 )
                 raise typer.Exit(1)
 
             # Download log content
             with create_spinner(
-                f"Downloading {'stdout' if stdout else 'stderr'}..."
+                f"Downloading {'stdout' if stdout else 'stderr'}...",
             ) as progress:
                 task = progress.add_task(
-                    f"Downloading {'stdout' if stdout else 'stderr'}...", total=None
+                    f"Downloading {'stdout' if stdout else 'stderr'}...",
+                    total=None,
                 )
-                response = requests.get(url)
+                response = requests.get(url, timeout=30)
                 response.raise_for_status()
                 log_content = response.text
                 progress.remove_task(task)
 
             if output:
-                with open(output, "w") as f:
+                with Path(output).open("w") as f:
                     f.write(log_content)
                 print_info(f"Logs saved to {output}")
             elif json_output:
@@ -350,7 +374,7 @@ def logs(
                     data={
                         "type": "stdout" if stdout else "stderr",
                         "content": log_content,
-                    }
+                    },
                 )
             else:
                 console.print(
@@ -358,7 +382,7 @@ def logs(
                         log_content,
                         title=f"{'stdout' if stdout else 'stderr'} logs",
                         expand=False,
-                    )
+                    ),
                 )
 
         else:
@@ -378,7 +402,9 @@ def logs(
                 while has_more:
                     # Fetch next page
                     logs_data = client.get_run_logs(
-                        full_run_id, limit=100, cursor=cursor
+                        full_run_id,
+                        limit=100,
+                        cursor=cursor,
                     )
                     events = logs_data.get("events", [])
 
@@ -403,7 +429,7 @@ def logs(
                     if filter_level:
                         for event in events:
                             if should_include_event(event, filter_level):
-                                filtered_events.append(event)
+                                filtered_events.append(event)  # noqa: PERF401
                     else:
                         all_events.extend(events)
 
@@ -425,7 +451,7 @@ def logs(
                     console.print(f"  {lvl}: {count}")
                 console.print(f"\nTotal events: {total_fetched}")
                 raise typer.Exit(1)
-            elif not events_to_display:
+            if not events_to_display:
                 print_warning("No log events found for this run")
                 raise typer.Exit(1)
 
@@ -487,7 +513,7 @@ def logs(
                                     "type": "Step Failure",
                                     "step": event.get("stepKey", "Unknown"),
                                     "stack": stack,
-                                }
+                                },
                             )
                     elif event.get("__typename") == "RunFailureEvent":
                         error = event.get("error") or {}
@@ -500,7 +526,7 @@ def logs(
                             if isinstance(stack, list):
                                 stack = "\n".join(stack)
                             stack_traces.append(
-                                {"type": "Run Failure", "step": None, "stack": stack}
+                                {"type": "Run Failure", "step": None, "stack": stack},
                             )
 
                     # Color code based on level
@@ -539,7 +565,7 @@ def logs(
                                 title=title,
                                 border_style="red",
                                 expand=False,
-                            )
+                            ),
                         )
                         console.print()  # Add spacing between stack traces
 
@@ -549,12 +575,12 @@ def logs(
                 # Display log summary
                 console.print("\n[dim]─[/dim]" * 50)
                 console.print(
-                    f"\n[bold]Log Summary[/bold] (Total events: {total_fetched}):"
+                    f"\n[bold]Log Summary[/bold] (Total events: {total_fetched}):",
                 )
                 for lvl in LEVEL_HIERARCHY:
                     count = level_counts.get(lvl, 0)
                     if count > 0:
-                        if lvl == "ERROR" or lvl == "CRITICAL":
+                        if lvl in ["ERROR", "CRITICAL"]:
                             style = "red"
                         elif lvl == "WARNING":
                             style = "yellow"
@@ -565,8 +591,9 @@ def logs(
                         console.print(f"  [{style}]• {lvl}: {count}[/{style}]")
 
                 if filter_level:
+                    n = len(events_to_display)
                     console.print(
-                        f"\n[dim]Showing: {filter_level} and above ({len(events_to_display)} events)[/dim]"
+                        f"\n[dim]Showing: {filter_level} and above ({n} events)[/dim]"
                     )
                 else:
                     console.print("\n[dim]Showing: ALL levels[/dim]")
@@ -579,7 +606,7 @@ def logs(
                 log_urls = client.get_compute_log_urls(full_run_id)
                 if stderr_url := log_urls.get("stderr_url"):
                     try:
-                        response = requests.get(stderr_url)
+                        response = requests.get(stderr_url, timeout=30)
                         response.raise_for_status()
                         if stderr_content := response.text.strip():
                             console.print("\n")
@@ -589,7 +616,7 @@ def logs(
                                     title="stderr output",
                                     expand=False,
                                     border_style="red",
-                                )
+                                ),
                             )
                         else:
                             print_info("stderr is empty")

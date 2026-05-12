@@ -3,18 +3,18 @@
 help:			## Show this help.
 	@grep '^[^#[:space:]\.].*:' Makefile
 
-fix:			## Run linters and formatters.
-	uv run ruff check --fix .
+fix:			## Automatically fix most code quality issues
 	uv run ruff format .
+	uv run ruff check --fix-only .
 
-check:			## Run linters in check mode.
-	uv run ruff check .
+check:			## Identify code quality issues
 	uv run ruff format --check .
+	uv run ruff check .
 	uv run ty check .
 
-test: check		## Run tests.
+test: check		## Exercute the test suite
 	uv run pytest
 
-publish: test	## Build and publish to PyPI.
+publish: test	## Build and publish to PyPI
 	uv build
 	uv publish

@@ -1,7 +1,7 @@
 """GraphQL client wrapper for Dagster+ API."""
 
-from datetime import datetime
-from typing import Any, Dict, List, Optional
+from datetime import datetime, timezone
+from typing import Any
 from urllib.parse import urlparse
 
 from dagster_graphql import DagsterGraphQLClient, DagsterGraphQLClientError
@@ -59,7 +59,9 @@ class DagsterClient:
     """Wrapper for Dagster GraphQL client with authentication handling."""
 
     def __init__(
-        self, profile_name: Optional[str] = None, deployment: Optional[str] = None
+        self,
+        profile_name: str | None = None,
+        deployment: str | None = None,
     ):
         self.config = Config()
         self.profile_name = profile_name
@@ -68,12 +70,12 @@ class DagsterClient:
 
         if not self.profile.get("url") or not self.profile.get("token"):
             raise AuthenticationError(
-                "No authentication found. Please run 'dgc auth login' first."
+                "No authentication found. Please run 'dgc auth login' first.",
             )
 
-        self._dagster_client: Optional[DagsterGraphQLClient] = None
-        self._gql_client: Optional[Client] = None
-        self._resolved_deployment: Optional[str] = None
+        self._dagster_client: DagsterGraphQLClient | None = None
+        self._gql_client: Client | None = None
+        self._resolved_deployment: str | None = None
 
     @property
     def dagster_client(self) -> DagsterGraphQLClient:
@@ -182,13 +184,14 @@ class DagsterClient:
 
             try:
                 self._gql_client = Client(
-                    transport=transport, fetch_schema_from_transport=True
+                    transport=transport,
+                    fetch_schema_from_transport=True,
                 )
             except Exception as e:
                 raise APIError(f"Failed to create GraphQL client: {e}") from e
         return self._gql_client
 
-    def get_deployment_info(self) -> Dict[str, Any]:
+    def get_deployment_info(self) -> dict[str, Any]:
         """Get basic information about the Dagster deployment."""
         try:
             query = gql("""
@@ -215,8 +218,9 @@ class DagsterClient:
             raise APIError(f"Failed to get deployment info: {e}") from e
 
     def list_jobs(
-        self, repository_location: Optional[str] = None
-    ) -> List[Dict[str, Any]]:
+        self,
+        repository_location: str | None = None,
+    ) -> list[dict[str, Any]]:
         """List all available jobs in the deployment."""
         try:
             query = gql("""
@@ -265,7 +269,7 @@ class DagsterClient:
         except Exception as e:
             raise APIError(f"Failed to list jobs: {e}") from e
 
-    def get_run_status(self, run_id: str) -> Optional[Dict[str, Any]]:
+    def get_run_status(self, run_id: str) -> dict[str, Any] | None:
         """Get the status of a specific run."""
         try:
             query = gql("""
@@ -302,9 +306,9 @@ class DagsterClient:
     def submit_job_run(
         self,
         job_name: str,
-        run_config: Optional[Dict] = None,
-        repository_location_name: Optional[str] = None,
-        repository_name: Optional[str] = None,
+        run_config: dict | None = None,
+        repository_location_name: str | None = None,
+        repository_name: str | None = None,
     ) -> str:
         """Submit a job for execution."""
         try:
@@ -324,8 +328,10 @@ class DagsterClient:
             raise APIError(f"Failed to submit job: {e}") from e
 
     def get_recent_runs(
-        self, limit: int = 10, status: Optional[str] = None
-    ) -> List[Dict[str, Any]]:
+        self,
+        limit: int = 10,
+        status: str | None = None,
+    ) -> list[dict[str, Any]]:
         """Get recent run history."""
         try:
             query = gql("""
@@ -378,10 +384,10 @@ class DagsterClient:
 
     def list_assets(
         self,
-        prefix: Optional[str] = None,
-        group: Optional[str] = None,
-        location: Optional[str] = None,
-    ) -> List[Dict[str, Any]]:
+        prefix: str | None = None,
+        group: str | None = None,
+        location: str | None = None,
+    ) -> list[dict[str, Any]]:
         """List all assets in the deployment."""
         try:
             query = gql("""
@@ -445,14 +451,14 @@ class DagsterClient:
                                 "computeKind": asset_node.get("computeKind"),
                                 "location": location_name,
                                 "repository": repo["name"],
-                            }
+                            },
                         )
 
             return assets
         except Exception as e:
             raise APIError(f"Failed to list assets: {e}") from e
 
-    def get_asset_details(self, asset_key: str) -> Optional[Dict[str, Any]]:
+    def get_asset_details(self, asset_key: str) -> dict[str, Any] | None:
         """Get detailed information about a specific asset."""
         try:
             # Convert string key to path array
@@ -529,7 +535,9 @@ class DagsterClient:
             raise APIError(f"Failed to get asset details: {e}") from e
 
     def materialize_asset(
-        self, asset_key: str, partition_key: Optional[str] = None
+        self,
+        asset_key: str,
+        partition_key: str | None = None,
     ) -> str:
         """Trigger materialization of an asset."""
         asset_key_path = asset_key.split("/")
@@ -563,7 +571,7 @@ class DagsterClient:
             return payload["run"]["runId"]
         raise APIError(f"Failed to materialize asset ({typename}): {payload}")
 
-    def get_asset_health(self, group: Optional[str] = None) -> List[Dict[str, Any]]:
+    def get_asset_health(self, group: str | None = None) -> list[dict[str, Any]]:
         """Get assets with their latest materialization status for health checks."""
         try:
             query = gql("""
@@ -624,7 +632,8 @@ class DagsterClient:
                             "location": location_name,
                             "repository": repo["name"],
                             "assetMaterializations": asset_node.get(
-                                "assetMaterializations", []
+                                "assetMaterializations",
+                                [],
                             ),
                         }
                         for asset_node in repo.get("assetNodes", [])
@@ -635,13 +644,18 @@ class DagsterClient:
             raise APIError(f"Failed to get asset health: {e}") from e
 
     def get_run_logs(
-        self, run_id: str, limit: int = 100, cursor: Optional[str] = None
-    ) -> Dict[str, Any]:
+        self,
+        run_id: str,
+        limit: int = 100,
+        cursor: str | None = None,
+    ) -> dict[str, Any]:
         """Get event logs for a run."""
         try:
             query = gql("""
                 query GetLogsForRun($runId: ID!, $afterCursor: String, $limit: Int) {
-                    logsForRun(runId: $runId, afterCursor: $afterCursor, limit: $limit) {
+                    logsForRun(
+                        runId: $runId, afterCursor: $afterCursor, limit: $limit
+                    ) {
                         ... on EventConnection {
                             events {
                                 __typename
@@ -769,17 +783,18 @@ class DagsterClient:
                     "cursor": logs_data.get("cursor"),
                     "hasMore": logs_data.get("hasMore", False),
                 }
-            elif logs_data.get("__typename") == "RunNotFoundError":
+            if logs_data.get("__typename") == "RunNotFoundError":
                 raise APIError(f"Run not found: {logs_data.get('message', run_id)}")
-            else:
-                raise APIError(f"Failed to get logs: {logs_data}")
+            raise APIError(f"Failed to get logs: {logs_data}")
 
         except Exception as e:
             raise APIError(f"Failed to get run logs: {e}") from e
 
     def get_compute_log_urls(
-        self, run_id: str, step_key: Optional[str] = None
-    ) -> Dict[str, Optional[str]]:
+        self,
+        run_id: str,
+        step_key: str | None = None,
+    ) -> dict[str, str | None]:
         """Get S3 URLs for stdout/stderr logs."""
         try:
             # Query for compute log metadata
@@ -807,7 +822,7 @@ class DagsterClient:
             # If the query is not available (e.g., not on Dagster+), return empty URLs
             return {"stdout_url": None, "stderr_url": None}
 
-    def list_deployments(self) -> List[Dict[str, Any]]:
+    def list_deployments(self) -> list[dict[str, Any]]:
         """List all available deployments in Dagster+."""
         try:
             query = gql("""
@@ -835,7 +850,7 @@ class DagsterClient:
         except Exception as e:
             raise APIError(f"Failed to list deployments: {e}") from e
 
-    def list_automations(self) -> List[Dict[str, Any]]:
+    def list_automations(self) -> list[dict[str, Any]]:
         """List all schedules and sensors."""
         try:
             query = gql("""
@@ -938,7 +953,8 @@ class DagsterClient:
                                 "description": schedule.get("description", ""),
                                 "status": (
                                     schedule.get("scheduleState", {}).get(
-                                        "status", "STOPPED"
+                                        "status",
+                                        "STOPPED",
                                     )
                                 ),
                                 "cron_schedule": schedule.get("cronSchedule", ""),
@@ -949,7 +965,7 @@ class DagsterClient:
                                 "tick_run_count": tick_run_count,
                                 "location": location_name,
                                 "repository": repo_name,
-                            }
+                            },
                         )
 
                     # Add sensors
@@ -993,10 +1009,11 @@ class DagsterClient:
                                 "description": sensor.get("description", ""),
                                 "status": (
                                     sensor.get("sensorState", {}).get(
-                                        "status", "STOPPED"
+                                        "status",
+                                        "STOPPED",
                                     )
                                 ),
-                                "cron_schedule": None,  # Sensors don't have cron schedules
+                                "cron_schedule": None,
                                 "last_tick": last_tick,
                                 "last_run_status": last_run_status,
                                 "last_run_timestamp": last_run_timestamp,
@@ -1004,7 +1021,7 @@ class DagsterClient:
                                 "tick_run_count": tick_run_count,
                                 "location": location_name,
                                 "repository": repo_name,
-                            }
+                            },
                         )
 
             # Sort automations by name
@@ -1012,7 +1029,7 @@ class DagsterClient:
         except Exception as e:
             raise APIError(f"Failed to list automations: {e}") from e
 
-    def get_automation_details(self, name: str) -> Optional[Dict[str, Any]]:
+    def get_automation_details(self, name: str) -> dict[str, Any] | None:
         """Get detailed information about a specific automation."""
         try:
             # First try to find if it's a schedule
@@ -1072,7 +1089,8 @@ class DagsterClient:
                                 ),
                                 "status": (
                                     schedule.get("scheduleState", {}).get(
-                                        "status", "STOPPED"
+                                        "status",
+                                        "STOPPED",
                                     )
                                 ),
                                 "recent_ticks": (
@@ -1144,7 +1162,8 @@ class DagsterClient:
                                 ),
                                 "status": (
                                     sensor.get("sensorState", {}).get(
-                                        "status", "STOPPED"
+                                        "status",
+                                        "STOPPED",
                                     )
                                 ),
                                 "recent_ticks": (
@@ -1158,7 +1177,7 @@ class DagsterClient:
         except Exception as e:
             raise APIError(f"Failed to get automation details: {e}") from e
 
-    def get_automation_runs(self, name: str, limit: int = 10) -> List[Dict[str, Any]]:
+    def get_automation_runs(self, name: str, limit: int = 10) -> list[dict[str, Any]]:
         """Get runs triggered by an automation."""
         try:
             # Get automation details to find its ticks with run IDs
@@ -1184,22 +1203,25 @@ class DagsterClient:
                     # Fallback: if we only have run IDs, fetch full details
                     for run_id in tick.get("runIds", []):
                         if run := self.get_run_status(run_id):
-                            all_runs.append(run)
+                            all_runs.append(run)  # noqa: PERF401
 
             # Limit the results
             all_runs = all_runs[:limit]
 
             # For runs that only have basic info, fetch full details
             for i, run in enumerate(all_runs):
-                if "startTime" not in run and run.get("id"):
-                    if full_run := self.get_run_status(run["id"]):
-                        all_runs[i] = full_run
+                if (
+                    "startTime" not in run
+                    and run.get("id")
+                    and (full_run := self.get_run_status(run["id"]))
+                ):
+                    all_runs[i] = full_run
 
             return all_runs
         except Exception as e:
             raise APIError(f"Failed to get automation runs: {e}") from e
 
-    def get_automation_ticks(self, name: str, limit: int = 20) -> List[Dict[str, Any]]:
+    def get_automation_ticks(self, name: str, limit: int = 20) -> list[dict[str, Any]]:
         """Get tick history for an automation."""
         try:
             if automation := self.get_automation_details(name):
@@ -1217,14 +1239,13 @@ class DagsterClient:
                     }
                     for tick in automation.get("recent_ticks", [])[:limit]
                 ]
-            else:
-                raise APIError(f"Automation '{name}' not found")
+            raise APIError(f"Automation '{name}' not found")
 
         except Exception as e:
             raise APIError(f"Failed to get automation ticks: {e}") from e
 
     @staticmethod
-    def format_timestamp(timestamp: Optional[float]) -> str:
+    def format_timestamp(timestamp: float | None) -> str:
         """Format Unix timestamp to readable datetime."""
         if not timestamp:
             return "N/A"
@@ -1238,8 +1259,7 @@ class DagsterClient:
 
         # Check if timestamp is in seconds or milliseconds
         if timestamp < 10000000000:
-            # Already in seconds
-            return datetime.fromtimestamp(timestamp).strftime(DATETIME_FORMAT)
+            dt = datetime.fromtimestamp(timestamp, tz=timezone.utc)
         else:
-            # In milliseconds
-            return datetime.fromtimestamp(timestamp / 1000).strftime(DATETIME_FORMAT)
+            dt = datetime.fromtimestamp(timestamp / 1000, tz=timezone.utc)
+        return dt.strftime(DATETIME_FORMAT)

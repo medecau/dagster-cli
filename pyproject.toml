@@ -33,7 +33,7 @@ dependencies = [
 dgc = "dagster_cli.cli:app"
 
 [build-system]
-requires = ["uv_build>=0.9.25,<0.10.0"]
+requires = ["uv_build>=0.11.0,<0.12.0"]
 build-backend = "uv_build"
 
 [dependency-groups]
@@ -43,6 +43,66 @@ dev = [
     "pytest-asyncio>=0.21.0",
     "ruff>=0.1.0",
     "ty>=0.0.12",
+]
+
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.lint]
+select = [
+    "A",
+    "ARG",
+    "B",
+    "C90",
+    "COM",
+    "DTZ",
+    "E",
+    "ERA",
+    "FBT",
+    "FIX",
+    "FURB",
+    "G",
+    "I",
+    "ICN",
+    "INP",
+    "N",
+    "PERF",
+    "PT",
+    "PTH",
+    "RET",
+    "S",
+    "SIM",
+    "SLF",
+    "T10",
+    "T20",
+    "TC",
+    "TD",
+    "TID",
+    "UP",
+    "W",
+    "YTT",
+]
+ignore = [
+    "COM812",   # may conflict with formatter
+    "FBT001",   # bool args are required by Typer's Option/Argument pattern
+    "FBT002",   # bool default values are idiomatic in this codebase
+    "FBT003",   # bool literal in typer.Option() default is required by Typer
+    "B008",     # typer.Option() call in default is the Typer pattern
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = [
+    "S101",   # assert is fine in tests
+    "SLF001", # accessing private member for mocking
+]
+"src/dagster_cli/commands/deployment.py" = [
+    "PT028",  # def test() is a CLI command, not a pytest test
+]
+"src/dagster_cli/commands/run.py" = [
+    "ARG001", # cancel stub declares params for Typer CLI binding
+]
+"src/dagster_cli/constants.py" = [
+    "S105",   # ENV_TOKEN holds an env var name, not a secret
 ]
 
 [tool.pytest.ini_options]
