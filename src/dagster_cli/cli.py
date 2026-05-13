@@ -23,7 +23,6 @@ from dagster_cli.utils.tldr import print_tldr
 app = typer.Typer(
     name="dgc",
     help="Dagster CLI - A command-line interface for Dagster+",
-    no_args_is_help=True,
     rich_markup_mode="rich",
     context_settings={"help_option_names": ["-h", "--help"]},
     pretty_exceptions_enable=False,
@@ -79,16 +78,10 @@ def version_callback(show: bool):
         raise typer.Exit()
 
 
-def tldr_callback(show: bool):
-    """Show TLDR examples and exit."""
-    if show:
-        print_tldr("main")
-        raise typer.Exit()
-
-
-@app.callback()
+@app.callback(invoke_without_command=True)
 def main(
-    version: bool = typer.Option(
+    ctx: typer.Context,
+    _version: bool = typer.Option(
         False,
         "--version",
         "-v",
@@ -96,14 +89,7 @@ def main(
         callback=version_callback,
         is_eager=True,
     ),
-    tldr: bool = typer.Option(
-        False,
-        "--tldr",
-        help="Show practical examples and exit",
-        callback=tldr_callback,
-        is_eager=True,
-    ),
-    profile: str | None = typer.Option(
+    _profile: str | None = typer.Option(
         None,
         "--profile",
         "-p",
@@ -130,7 +116,10 @@ def main(
 
         dgc [command] --help
     """
-    # Profile handling is done per-command, this is just for the callback
+    if ctx.invoked_subcommand is None:
+        console.print(ctx.get_help())
+        print_tldr("main")
+        raise typer.Exit()
 
 
 @app.command()

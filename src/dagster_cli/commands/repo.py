@@ -32,22 +32,11 @@ app = typer.Typer(
 
 
 @app.callback(invoke_without_command=True)
-def repo_callback(
-    ctx: typer.Context,
-    tldr: bool = typer.Option(
-        False,
-        "--tldr",
-        help="Show practical examples and exit",
-        is_eager=True,
-    ),
-):
+def repo_callback(ctx: typer.Context):
     """Repository management callback."""
-    if tldr:
-        print_tldr("repo")
-        raise typer.Exit()
-
     if ctx.invoked_subcommand is None:
         console.print(ctx.get_help())
+        print_tldr("repo")
         raise typer.Exit()
 
 

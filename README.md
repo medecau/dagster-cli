@@ -31,7 +31,7 @@ dgc run logs abc123 --stderr
 dgc run list --limit 10
 ```
 
-**Note:** All commands support `--help` for detailed options and `--tldr` for quick examples.
+**Note:** All commands show practical examples when invoked without a subcommand; pass `--help` for detailed options.
 
 ## MCP Server for AI Assistants
 

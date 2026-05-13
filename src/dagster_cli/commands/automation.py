@@ -14,11 +14,20 @@ from dagster_cli.utils.output import (
     print_runs_table,
     print_warning,
 )
+from dagster_cli.utils.tldr import print_tldr
 
 app = typer.Typer(
     help="Automation management (schedules and sensors)",
-    no_args_is_help=True,
 )
+
+
+@app.callback(invoke_without_command=True)
+def automation_callback(ctx: typer.Context):
+    """Automation management callback."""
+    if ctx.invoked_subcommand is None:
+        console.print(ctx.get_help())
+        print_tldr("automation")
+        raise typer.Exit()
 
 
 @app.command("list")

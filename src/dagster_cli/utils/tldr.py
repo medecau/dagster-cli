@@ -2,13 +2,10 @@
 
 # TLDR content for each command
 REPO_URL = "https://github.com/medecau/dagster-cli"
-MORE_INFO = f"More information: [red italic]{REPO_URL}[/red italic][/magenta]"
 TLDR_CONTENT: dict[str, str] = {
-    "main": f"""[bold magenta]dgc[/bold magenta]
-
-  [magenta]Dagster CLI - Command-line interface for Dagster+ operations.
-  Similar to GitHub's 'gh' CLI, but for managing Dagster+ deployments.
-  {MORE_INFO}
+    "main": (
+        """\
+  [magenta]dgc — The CLI for Dagster+ operators, by operators[/magenta]
 
   [green]Authenticate with your Dagster+ deployment:[/green]
 
@@ -28,11 +25,14 @@ TLDR_CONTENT: dict[str, str] = {
 
   [green]List recent runs to find failures:[/green]
 
-    [cyan]dgc run list --limit 10[/cyan]""",
-    "auth": f"""[bold magenta]dgc auth[/bold magenta]
+    [cyan]dgc run list --limit 10[/cyan]
 
-  [magenta]Authentication management for Dagster+ deployments.
-  {MORE_INFO}
+  """
+        f"[dim italic]source code: [red italic]{REPO_URL}[/red italic]\n"
+        "  MIT-licensed — bugs, ideas, and patches welcome[/dim italic]"
+    ),
+    "auth": """\
+  [magenta]Authentication management for Dagster+ deployments.[/magenta]
 
   [green]Login to a Dagster+ deployment:[/green]
 
@@ -45,10 +45,8 @@ TLDR_CONTENT: dict[str, str] = {
   [green]Switch to a different profile:[/green]
 
     [cyan]dgc auth switch production[/cyan]""",
-    "job": f"""[bold magenta]dgc job[/bold magenta]
-
-  [magenta]Manage Dagster jobs - list, view details, and run jobs.
-  {MORE_INFO}
+    "job": """\
+  [magenta]Manage Dagster jobs - list, view details, and run jobs.[/magenta]
 
   [green]List all available jobs:[/green]
 
@@ -61,10 +59,8 @@ TLDR_CONTENT: dict[str, str] = {
   [green]Run a job with configuration file:[/green]
 
     [cyan]dgc job run etl_pipeline --config-file config.json[/cyan]""",
-    "run": f"""[bold magenta]dgc run[/bold magenta]
-
-  [magenta]Monitor and manage Dagster run executions.
-  {MORE_INFO}
+    "run": """\
+  [magenta]Monitor and manage Dagster run executions.[/magenta]
 
   [green]List recent runs:[/green]
 
@@ -77,10 +73,8 @@ TLDR_CONTENT: dict[str, str] = {
   [green]View Python stack trace for a failed run:[/green]
 
     [cyan]dgc run logs abc123 --stderr[/cyan]""",
-    "asset": f"""[bold magenta]dgc asset[/bold magenta]
-
-  [magenta]Manage Dagster assets - list, materialize, and check health.
-  {MORE_INFO}
+    "asset": """\
+  [magenta]Manage Dagster assets - list, materialize, and check health.[/magenta]
 
   [green]Check health status of all assets:[/green]
 
@@ -97,10 +91,8 @@ TLDR_CONTENT: dict[str, str] = {
   [green]Materialize an asset:[/green]
 
     [cyan]dgc asset materialize analytics/daily_revenue[/cyan]""",
-    "repo": f"""[bold magenta]dgc repo[/bold magenta]
-
-  [magenta]Repository management - list locations and reload code.
-  {MORE_INFO}
+    "repo": """\
+  [magenta]Repository management - list locations and reload code.[/magenta]
 
   [green]List all repository locations:[/green]
 
@@ -109,18 +101,14 @@ TLDR_CONTENT: dict[str, str] = {
   [green]Reload a repository location:[/green]
 
     [cyan]dgc repo reload data_etl[/cyan]""",
-    "deployment": f"""[bold magenta]dgc deployment[/bold magenta]
-
-  [magenta]Manage Dagster+ deployments including branch deployments.
-  {MORE_INFO}
+    "deployment": """\
+  [magenta]Manage Dagster+ deployments including branch deployments.[/magenta]
 
   [green]List all available deployments:[/green]
 
     [cyan]dgc deployment list[/cyan]""",
-    "mcp": f"""[bold magenta]dgc mcp[/bold magenta]
-
-  [magenta]Model Context Protocol server for AI assistant integration.
-  {MORE_INFO}
+    "mcp": """\
+  [magenta]MCP server for AI agents.[/magenta]
 
   [green]Start MCP server (stdio mode by default):[/green]
 
@@ -129,6 +117,20 @@ TLDR_CONTENT: dict[str, str] = {
   [green]Start MCP server in HTTP mode:[/green]
 
     [cyan]dgc mcp start --http[/cyan]""",
+    "automation": """\
+  [magenta]Manage Dagster schedules and sensors.[/magenta]
+
+  [green]List all schedules and sensors:[/green]
+
+    [cyan]dgc automation list[/cyan]
+
+  [green]View details of a schedule or sensor:[/green]
+
+    [cyan]dgc automation view daily_schedule[/cyan]
+
+  [green]View recent ticks and runs:[/green]
+
+    [cyan]dgc automation history daily_schedule[/cyan]""",
 }
 
 
