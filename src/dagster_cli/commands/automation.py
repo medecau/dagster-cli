@@ -14,10 +14,14 @@ from dagster_cli.utils.output import (
     print_runs_table,
     print_warning,
 )
-from dagster_cli.utils.tldr import print_tldr
+from dagster_cli.utils.tldr import TLDR_CONTENT
+from dagster_cli.utils.typer_utils import TLDRGroup
 
 app = typer.Typer(
+    cls=TLDRGroup,
     help="Automation management (schedules and sensors)",
+    epilog=TLDR_CONTENT["automation"],
+    rich_markup_mode="rich",
 )
 
 
@@ -26,7 +30,6 @@ def automation_callback(ctx: typer.Context):
     """Automation management callback."""
     if ctx.invoked_subcommand is None:
         console.print(ctx.get_help())
-        print_tldr("automation")
         raise typer.Exit()
 
 

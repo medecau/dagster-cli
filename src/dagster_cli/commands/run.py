@@ -24,7 +24,8 @@ from dagster_cli.utils.output import (
     print_warning,
 )
 from dagster_cli.utils.run_utils import resolve_run_id
-from dagster_cli.utils.tldr import print_tldr
+from dagster_cli.utils.tldr import TLDR_CONTENT
+from dagster_cli.utils.typer_utils import TLDRGroup
 
 # Log level hierarchy for filtering
 LEVEL_HIERARCHY = {
@@ -74,6 +75,7 @@ def should_include_event(event, min_level):
 
 
 app = typer.Typer(
+    cls=TLDRGroup,
     help="""[bold]Run management[/bold]
 
 [bold cyan]Available commands:[/bold cyan]
@@ -83,6 +85,7 @@ app = typer.Typer(
   [green]cancel[/green]   Cancel a running job [dim]RUN_ID [--yes][/dim]
 
 [dim]Use 'dgc run COMMAND --help' for detailed options[/dim]""",
+    epilog=TLDR_CONTENT["run"],
     rich_markup_mode="rich",
 )
 
@@ -92,7 +95,6 @@ def run_callback(ctx: typer.Context):
     """Run management callback."""
     if ctx.invoked_subcommand is None:
         console.print(ctx.get_help())
-        print_tldr("run")
         raise typer.Exit()
 
 

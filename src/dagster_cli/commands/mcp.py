@@ -4,9 +4,11 @@ import typer
 
 from dagster_cli.client import DagsterClient
 from dagster_cli.utils.output import console, print_error, print_info
-from dagster_cli.utils.tldr import print_tldr
+from dagster_cli.utils.tldr import TLDR_CONTENT
+from dagster_cli.utils.typer_utils import TLDRGroup
 
 app = typer.Typer(
+    cls=TLDRGroup,
     help="""[bold]MCP operations[/bold]
 
 [bold cyan]Available commands:[/bold cyan]
@@ -16,6 +18,7 @@ app = typer.Typer(
            • [dim]--profile[/dim] to use specific profile
 
 [dim]Use 'dgc mcp COMMAND --help' for detailed options[/dim]""",
+    epilog=TLDR_CONTENT["mcp"],
     rich_markup_mode="rich",
 )
 
@@ -25,7 +28,6 @@ def mcp_callback(ctx: typer.Context):
     """MCP operations callback."""
     if ctx.invoked_subcommand is None:
         console.print(ctx.get_help())
-        print_tldr("mcp")
         raise typer.Exit()
 
 

@@ -17,9 +17,11 @@ from dagster_cli.utils.output import (
     print_success,
     print_warning,
 )
-from dagster_cli.utils.tldr import print_tldr
+from dagster_cli.utils.tldr import TLDR_CONTENT
+from dagster_cli.utils.typer_utils import TLDRGroup
 
 app = typer.Typer(
+    cls=TLDRGroup,
     help="""[bold]Repository management[/bold]
 
 [bold cyan]Available commands:[/bold cyan]
@@ -27,6 +29,7 @@ app = typer.Typer(
   [green]reload[/green]   Reload a repository location [dim]LOCATION_NAME[/dim]
 
 [dim]Use 'dgc repo COMMAND --help' for detailed options[/dim]""",
+    epilog=TLDR_CONTENT["repo"],
     rich_markup_mode="rich",
 )
 
@@ -36,7 +39,6 @@ def repo_callback(ctx: typer.Context):
     """Repository management callback."""
     if ctx.invoked_subcommand is None:
         console.print(ctx.get_help())
-        print_tldr("repo")
         raise typer.Exit()
 
 

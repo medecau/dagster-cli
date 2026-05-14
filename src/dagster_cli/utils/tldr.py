@@ -132,13 +132,3 @@ TLDR_CONTENT: dict[str, str] = {
 
     [cyan]dgc automation history daily_schedule[/cyan]""",
 }
-
-
-def print_tldr(command: str = "main") -> None:
-    """Print TLDR content for a command and exit."""
-    from dagster_cli.utils.output import console
-
-    if command in TLDR_CONTENT:
-        console.print(TLDR_CONTENT[command])
-    else:
-        console.print(f"[red]No TLDR content available for '{command}'[/red]")

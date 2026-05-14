@@ -18,11 +18,14 @@ from dagster_cli.constants import (
     DEPLOYMENT_OPTION_SHORT,
 )
 from dagster_cli.utils.output import console, print_info
-from dagster_cli.utils.tldr import print_tldr
+from dagster_cli.utils.tldr import TLDR_CONTENT
+from dagster_cli.utils.typer_utils import TLDRGroup
 
 app = typer.Typer(
     name="dgc",
+    cls=TLDRGroup,
     help="Dagster CLI - A command-line interface for Dagster+",
+    epilog=TLDR_CONTENT["main"],
     rich_markup_mode="rich",
     context_settings={"help_option_names": ["-h", "--help"]},
     pretty_exceptions_enable=False,
@@ -118,7 +121,6 @@ def main(
     """
     if ctx.invoked_subcommand is None:
         console.print(ctx.get_help())
-        print_tldr("main")
         raise typer.Exit()
 
 

@@ -12,15 +12,18 @@ from dagster_cli.utils.output import (
     print_success,
     print_warning,
 )
-from dagster_cli.utils.tldr import print_tldr
+from dagster_cli.utils.tldr import TLDR_CONTENT
+from dagster_cli.utils.typer_utils import TLDRGroup
 
 app = typer.Typer(
+    cls=TLDRGroup,
     help="""[bold]Deployment management[/bold]
 
 [bold cyan]Available commands:[/bold cyan]
   [green]list[/green]     List available deployments [dim](--json)[/dim]
 
 [dim]Use 'dgc deployment COMMAND --help' for detailed options[/dim]""",
+    epilog=TLDR_CONTENT["deployment"],
     rich_markup_mode="rich",
 )
 
@@ -30,7 +33,6 @@ def deployment_callback(ctx: typer.Context):
     """Deployment management callback."""
     if ctx.invoked_subcommand is None:
         console.print(ctx.get_help())
-        print_tldr("deployment")
         raise typer.Exit()
 
 

@@ -20,9 +20,11 @@ from dagster_cli.utils.output import (
     print_success,
     print_warning,
 )
-from dagster_cli.utils.tldr import print_tldr
+from dagster_cli.utils.tldr import TLDR_CONTENT
+from dagster_cli.utils.typer_utils import TLDRGroup
 
 app = typer.Typer(
+    cls=TLDRGroup,
     help="""[bold]Job operations[/bold]
 
 [bold cyan]Available commands:[/bold cyan]
@@ -31,6 +33,7 @@ app = typer.Typer(
   [green]run[/green]      Run a job [dim]JOB_NAME [--config FILE] [--tags][/dim]
 
 [dim]Use 'dgc job COMMAND --help' for detailed options[/dim]""",
+    epilog=TLDR_CONTENT["job"],
     rich_markup_mode="rich",
 )
 
@@ -40,7 +43,6 @@ def job_callback(ctx: typer.Context):
     """Job operations callback."""
     if ctx.invoked_subcommand is None:
         console.print(ctx.get_help())
-        print_tldr("job")
         raise typer.Exit()
 
 
