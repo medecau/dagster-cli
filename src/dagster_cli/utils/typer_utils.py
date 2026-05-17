@@ -32,6 +32,11 @@ class _FixedEpilogGroup(TyperGroup):
     """
 
     def format_help(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
+        if self.rich_markup_mode is None:
+            # Typer falls through to Click's plain-text formatter, which has
+            # no newline-collapsing bug — nothing to work around.
+            super().format_help(ctx, formatter)
+            return
         epilog, self.epilog = self.epilog, None
         try:
             super().format_help(ctx, formatter)
@@ -49,7 +54,7 @@ class _FixedEpilogGroup(TyperGroup):
         if not names:
             return None
 
-        def show_help(ctx: click.Context, param: click.Parameter, value: bool) -> None:
+        def show_help(ctx: click.Context, _param: click.Parameter, value: bool) -> None:
             if value and not ctx.resilient_parsing:
                 click.echo(ctx.get_help(), color=ctx.color)
                 ctx.exit()
