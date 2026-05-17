@@ -19,15 +19,13 @@ from dagster_cli.constants import (
 )
 from dagster_cli.utils.output import console, print_info
 from dagster_cli.utils.tldr import TLDR_CONTENT
-from dagster_cli.utils.typer_utils import TLDRGroup
+from dagster_cli.utils.typer_utils import Typer
 
-app = typer.Typer(
+app = Typer(
     name="dgc",
-    cls=TLDRGroup,
     help="Dagster CLI - A command-line interface for Dagster+",
     epilog=TLDR_CONTENT["main"],
     rich_markup_mode="rich",
-    context_settings={"help_option_names": ["-h", "--help"]},
     pretty_exceptions_enable=False,
 )
 

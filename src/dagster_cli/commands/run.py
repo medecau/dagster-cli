@@ -25,7 +25,7 @@ from dagster_cli.utils.output import (
 )
 from dagster_cli.utils.run_utils import resolve_run_id
 from dagster_cli.utils.tldr import TLDR_CONTENT
-from dagster_cli.utils.typer_utils import TLDRGroup
+from dagster_cli.utils.typer_utils import Typer
 
 # Log level hierarchy for filtering
 LEVEL_HIERARCHY = {
@@ -74,8 +74,7 @@ def should_include_event(event, min_level):
     return LEVEL_HIERARCHY.get(event_level, -1) >= LEVEL_HIERARCHY.get(min_level, 0)
 
 
-app = typer.Typer(
-    cls=TLDRGroup,
+app = Typer(
     help="""[bold]Run management[/bold]
 
 [bold cyan]Available commands:[/bold cyan]

@@ -5,10 +5,9 @@ import typer
 from dagster_cli.client import DagsterClient
 from dagster_cli.utils.output import console, print_error, print_info
 from dagster_cli.utils.tldr import TLDR_CONTENT
-from dagster_cli.utils.typer_utils import TLDRGroup
+from dagster_cli.utils.typer_utils import Typer
 
-app = typer.Typer(
-    cls=TLDRGroup,
+app = Typer(
     help="""[bold]MCP operations[/bold]
 
 [bold cyan]Available commands:[/bold cyan]

@@ -18,10 +18,9 @@ from dagster_cli.utils.output import (
     print_warning,
 )
 from dagster_cli.utils.tldr import TLDR_CONTENT
-from dagster_cli.utils.typer_utils import TLDRGroup
+from dagster_cli.utils.typer_utils import Typer
 
-app = typer.Typer(
-    cls=TLDRGroup,
+app = Typer(
     help="""[bold]Repository management[/bold]
 
 [bold cyan]Available commands:[/bold cyan]
