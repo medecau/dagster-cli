@@ -2,7 +2,6 @@
 
 import typer
 
-from dagster_cli.client import DagsterClient
 from dagster_cli.utils.output import (
     console,
     create_spinner,
@@ -73,6 +72,8 @@ def list_deployments(
 ):
     """List all available deployments."""
     try:
+        from dagster_cli.client import DagsterClient
+
         client = DagsterClient(profile)
 
         with create_spinner("Fetching deployments...") as (progress, task):
@@ -124,6 +125,8 @@ def test(
             task,
         ):
             try:
+                from dagster_cli.client import DagsterClient
+
                 client = DagsterClient(profile, deployment_name)
                 info = client.get_deployment_info()
                 progress.remove_task(task)

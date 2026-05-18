@@ -2,7 +2,6 @@
 
 import typer
 
-from dagster_cli.client import DagsterClient
 from dagster_cli.constants import (
     DEPLOYMENT_OPTION_HELP,
     DEPLOYMENT_OPTION_NAME,
@@ -59,6 +58,8 @@ def list_repos(
 ):
     """List repositories and locations."""
     try:
+        from dagster_cli.client import DagsterClient
+
         client = DagsterClient(profile, deployment)
 
         with create_spinner("Fetching repositories...") as (progress, task):
@@ -121,6 +122,8 @@ def reload(
         if not yes and not typer.confirm(f"Reload repository location '{location}'?"):
             print_warning("Cancelled")
             return
+
+        from dagster_cli.client import DagsterClient
 
         client = DagsterClient(profile, deployment)
 

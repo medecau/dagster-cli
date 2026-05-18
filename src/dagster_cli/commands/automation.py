@@ -2,7 +2,6 @@
 
 import typer
 
-from dagster_cli.client import DagsterClient
 from dagster_cli.utils.output import (
     console,
     create_spinner,
@@ -44,6 +43,8 @@ def list_automations(
 ):
     """List all automations (schedules and sensors)."""
     try:
+        from dagster_cli.client import DagsterClient
+
         client = DagsterClient(profile)
 
         with create_spinner("Fetching automations...") as (progress, task):
@@ -78,6 +79,8 @@ def view(
 ):
     """View automation details."""
     try:
+        from dagster_cli.client import DagsterClient
+
         client = DagsterClient(profile)
 
         with create_spinner("Fetching automation details...") as (progress, task):
@@ -128,6 +131,8 @@ def history(
 ):
     """View automation history (runs or ticks)."""
     try:
+        from dagster_cli.client import DagsterClient
+
         client = DagsterClient(profile)
 
         if ticks:

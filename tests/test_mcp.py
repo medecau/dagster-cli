@@ -22,7 +22,7 @@ def test_mcp_start_requires_authentication():
     """Test that mcp start fails without authentication."""
     from dagster_cli.utils.errors import AuthenticationError
 
-    with patch("dagster_cli.commands.mcp.DagsterClient") as mock_client_class:
+    with patch("dagster_cli.client.DagsterClient") as mock_client_class:
         mock_client_class.side_effect = AuthenticationError(
             "No authentication found. Please run 'dgc auth login' first."
         )
@@ -35,7 +35,7 @@ def test_mcp_start_requires_authentication():
 def test_mcp_start_stdio_mode():
     """Test MCP server starts in stdio mode (default)."""
     with (
-        patch("dagster_cli.commands.mcp.DagsterClient") as mock_client_class,
+        patch("dagster_cli.client.DagsterClient") as mock_client_class,
         patch("dagster_cli.commands.mcp.start_stdio_server") as mock_stdio,
     ):
         mock_client = MagicMock()
@@ -50,7 +50,7 @@ def test_mcp_start_stdio_mode():
 def test_mcp_start_http_mode():
     """Test MCP server starts in HTTP mode with --http flag."""
     with (
-        patch("dagster_cli.commands.mcp.DagsterClient") as mock_client_class,
+        patch("dagster_cli.client.DagsterClient") as mock_client_class,
         patch("dagster_cli.commands.mcp.start_http_server") as mock_http,
     ):
         mock_client = MagicMock()
@@ -65,7 +65,7 @@ def test_mcp_start_http_mode():
 def test_mcp_start_with_profile():
     """Test MCP server respects profile option."""
     with (
-        patch("dagster_cli.commands.mcp.DagsterClient") as mock_client_class,
+        patch("dagster_cli.client.DagsterClient") as mock_client_class,
         patch("dagster_cli.commands.mcp.start_stdio_server") as mock_stdio,
     ):
         mock_client = MagicMock()
@@ -81,7 +81,7 @@ def test_mcp_server_validates_auth_on_startup():
     """Test that server validates authentication immediately on startup."""
     from dagster_cli.utils.errors import AuthenticationError
 
-    with patch("dagster_cli.commands.mcp.DagsterClient") as mock_client_class:
+    with patch("dagster_cli.client.DagsterClient") as mock_client_class:
         mock_client_class.side_effect = AuthenticationError(
             "No authentication found. Please run 'dgc auth login' first."
         )

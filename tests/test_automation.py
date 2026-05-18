@@ -14,7 +14,7 @@ runner = CliRunner()
 @pytest.fixture
 def mock_client():
     """Create a mock DagsterClient."""
-    with patch("dagster_cli.commands.automation.DagsterClient") as mock:
+    with patch("dagster_cli.client.DagsterClient") as mock:
         yield mock
 
 

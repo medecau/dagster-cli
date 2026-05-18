@@ -5,7 +5,6 @@ from typing import Optional
 
 import typer
 
-from dagster_cli.client import DagsterClient
 from dagster_cli.config import Config
 from dagster_cli.utils.errors import ConfigError
 from dagster_cli.utils.output import (
@@ -84,6 +83,8 @@ def login(
     # Validate by attempting to connect
     with console.status("Validating credentials..."):
         try:
+            from dagster_cli.client import DagsterClient
+
             # Create temporary client to test credentials
             config = Config()
             config.set_profile(profile, url, token, location, repository)
@@ -180,6 +181,8 @@ def status():
     # Test current profile connection
     if current in profiles:
         try:
+            from dagster_cli.client import DagsterClient
+
             client = DagsterClient()
             info = client.get_deployment_info()
             version = info.get("version", "Unknown")

@@ -1,8 +1,11 @@
 """Utilities for run-related operations."""
 
-from typing import Any
+from __future__ import annotations
 
-from dagster_cli.client import DagsterClient
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from dagster_cli.client import DagsterClient
 
 
 def resolve_run_id(

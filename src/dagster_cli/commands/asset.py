@@ -1,10 +1,15 @@
 """Asset-related commands for Dagster CLI."""
 
+from __future__ import annotations
+
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 
 import typer
 
-from dagster_cli.client import DagsterClient
+if TYPE_CHECKING:
+    from dagster_cli.client import DagsterClient
+
 from dagster_cli.constants import (
     DEFAULT_LIST_LIMIT,
     DEPLOYMENT_OPTION_HELP,
@@ -89,6 +94,8 @@ def list_assets(
 ):
     """List all assets."""
     try:
+        from dagster_cli.client import DagsterClient
+
         client = DagsterClient(profile, deployment)
 
         with create_spinner("Fetching assets...") as (progress, task):
@@ -134,6 +141,8 @@ def view(  # noqa: C901
 ):
     """View asset details."""
     try:
+        from dagster_cli.client import DagsterClient
+
         client = DagsterClient(profile, deployment)
 
         with create_spinner("Fetching asset details...") as (progress, task):
@@ -252,6 +261,8 @@ def materialize(
             print_warning("Cancelled")
             return
 
+        from dagster_cli.client import DagsterClient
+
         client = DagsterClient(profile, deployment)
 
         with create_spinner("Submitting materialization...") as (progress, task):
@@ -304,6 +315,8 @@ def health(  # noqa: C901
 ):
     """Check asset health status."""
     try:
+        from dagster_cli.client import DagsterClient
+
         client = DagsterClient(profile, deployment)
 
         with create_spinner("Checking asset health...") as (progress, task):

@@ -2,7 +2,6 @@
 
 import typer
 
-from dagster_cli.client import DagsterClient
 from dagster_cli.utils.output import console, print_error, print_info
 from dagster_cli.utils.tldr import TLDR_CONTENT
 from dagster_cli.utils.typer_utils import Typer
@@ -70,6 +69,8 @@ def start(
     default values (127.0.0.1:8000/mcp/).
     """
     try:
+        from dagster_cli.client import DagsterClient
+
         client = DagsterClient(profile)
         print_info(f"Starting MCP server in {'HTTP' if http else 'stdio'} mode...")
         print_info(f"Connected to: {client.profile.get('url', 'Unknown')}")

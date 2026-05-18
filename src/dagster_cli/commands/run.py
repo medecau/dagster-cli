@@ -1,12 +1,17 @@
 """Run-related commands for Dagster CLI."""
 
+from __future__ import annotations
+
 import contextlib
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import typer
 from rich.panel import Panel
 
-from dagster_cli.client import DagsterClient
+if TYPE_CHECKING:
+    from dagster_cli.client import DagsterClient
+
 from dagster_cli.constants import (
     DEFAULT_RUN_LIMIT,
     DEPLOYMENT_OPTION_HELP,
@@ -127,6 +132,8 @@ def list_runs(
 ):
     """List recent runs."""
     try:
+        from dagster_cli.client import DagsterClient
+
         client = DagsterClient(profile, deployment)
 
         with create_spinner("Fetching runs...") as (progress, task):
@@ -182,6 +189,8 @@ def view(
     Use --no-errors to suppress this behaviour.
     """
     try:
+        from dagster_cli.client import DagsterClient
+
         client = DagsterClient(profile, deployment)
 
         with create_spinner("Finding run...") as (progress, task):
@@ -292,6 +301,8 @@ def cancel(
 ):
     """Cancel a running job."""
     try:
+        from dagster_cli.client import DagsterClient
+
         client = DagsterClient(profile, deployment)
 
         with create_spinner("Finding run...") as (progress, task):
@@ -390,6 +401,8 @@ def logs(  # noqa: C901
     from rich.table import Table
 
     try:
+        from dagster_cli.client import DagsterClient
+
         client = DagsterClient(profile, deployment)
 
         # Resolve partial run ID if needed

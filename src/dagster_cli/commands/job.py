@@ -4,7 +4,6 @@ import json
 
 import typer
 
-from dagster_cli.client import DagsterClient
 from dagster_cli.constants import (
     DEFAULT_LIST_LIMIT,
     DEPLOYMENT_OPTION_HELP,
@@ -75,6 +74,8 @@ def list_jobs(
 ):
     """List all available jobs."""
     try:
+        from dagster_cli.client import DagsterClient
+
         client = DagsterClient(profile, deployment)
 
         with create_spinner("Fetching jobs...") as (progress, task):
@@ -179,6 +180,8 @@ def run(  # noqa: C901
             print_warning("Cancelled")
             return
 
+        from dagster_cli.client import DagsterClient
+
         client = DagsterClient(profile, deployment)
 
         with create_spinner("Submitting job...") as (progress, task):
@@ -225,6 +228,8 @@ def view(
 ):
     """View job details."""
     try:
+        from dagster_cli.client import DagsterClient
+
         client = DagsterClient(profile, deployment)
 
         with create_spinner("Fetching job details...") as (progress, task):
